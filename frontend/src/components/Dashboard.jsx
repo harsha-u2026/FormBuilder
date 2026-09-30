@@ -17,6 +17,8 @@ import {
   Briefcase,
   AlertTriangle,
   X,
+  LogIn,
+  ShieldCheck,
 } from 'lucide-react';
 
 export default function Dashboard({
@@ -30,6 +32,8 @@ export default function Dashboard({
   onCopyShareLink,
   isTemplatesModalOpen,
   setIsTemplatesModalOpen,
+  currentUser,
+  onOpenAuthModal,
 }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -87,9 +91,15 @@ export default function Dashboard({
       {/* Hero Section */}
       <div className="dashboard-hero">
         <div>
-          <h1 className="hero-title">Forms & Surveys Dashboard</h1>
+          <h1 className="hero-title">
+            {currentUser
+              ? `Welcome back, ${currentUser.full_name || currentUser.email.split('@')[0]}!`
+              : 'Forms & Surveys Dashboard'}
+          </h1>
           <p className="hero-subtitle">
-            Create, distribute, and analyze beautiful forms with instant real-time responses.
+            {currentUser
+              ? 'Manage your surveys, inspect live responses, and design user-specific forms.'
+              : 'Create, distribute, and analyze beautiful forms with instant real-time responses.'}
           </p>
         </div>
         <div className="hero-actions">
@@ -147,6 +157,27 @@ export default function Dashboard({
         </div>
       </div>
 
+      {/* Auth Reminder Notice Banner (when logged out) */}
+      {!currentUser && (
+        <div className="auth-notice-banner">
+          <div className="auth-notice-info">
+            <div className="auth-notice-icon-box">
+              <ShieldCheck size={20} color="var(--primary)" />
+            </div>
+            <div>
+              <div className="auth-notice-title">Sign in to build and manage your forms</div>
+              <div className="auth-notice-desc">
+                Log in or create a free account to design surveys, collect respondent submissions, and view real-time analytics.
+              </div>
+            </div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={onOpenAuthModal}>
+            <LogIn size={15} />
+            <span>Sign In / Register</span>
+          </button>
+        </div>
+      )}
+
       {/* Filter & Search Bar */}
       <div className="filter-bar">
         <div className="search-box">
@@ -188,19 +219,30 @@ export default function Dashboard({
           <FileText size={48} color="var(--text-faint)" style={{ margin: '0 auto 1rem auto' }} />
           <h3 style={{ fontSize: '1.25rem', marginBottom: '0.5rem' }}>No forms found</h3>
           <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
-            {searchTerm || statusFilter !== 'all'
+            {!currentUser
+              ? 'Sign in to access your forms or create a new survey.'
+              : searchTerm || statusFilter !== 'all'
               ? 'Try clearing your search query or status filter.'
               : 'Get started by creating your first form from scratch or using a template.'}
           </p>
           <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
-            <button className="btn btn-secondary" onClick={() => setIsTemplatesModalOpen(true)}>
-              <Sparkles size={16} />
-              <span>Choose Template</span>
-            </button>
-            <button className="btn btn-primary" onClick={onCreateBlank}>
-              <Plus size={16} />
-              <span>Create Blank Form</span>
-            </button>
+            {!currentUser ? (
+              <button className="btn btn-primary" onClick={onOpenAuthModal}>
+                <LogIn size={16} />
+                <span>Sign In to Account</span>
+              </button>
+            ) : (
+              <>
+                <button className="btn btn-secondary" onClick={() => setIsTemplatesModalOpen(true)}>
+                  <Sparkles size={16} />
+                  <span>Choose Template</span>
+                </button>
+                <button className="btn btn-primary" onClick={onCreateBlank}>
+                  <Plus size={16} />
+                  <span>Create Blank Form</span>
+                </button>
+              </>
+            )}
           </div>
         </div>
       ) : (

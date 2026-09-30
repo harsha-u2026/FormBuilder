@@ -7,9 +7,14 @@ import Inspector from './components/builder/Inspector';
 import RespondentView from './components/RespondentView';
 import AnalyticsView from './components/AnalyticsView';
 import Toast from './components/Toast';
+import AuthModal from './components/AuthModal';
 import { api } from './api/client';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(() => api.getUser());
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('login');
+
   const [forms, setForms] = useState([]);
   const [activeFormId, setActiveFormId] = useState(null);
   const [activeForm, setActiveForm] = useState(null);
@@ -30,6 +35,20 @@ export default function App() {
 
   const removeToast = (id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  const openAuthModal = (mode = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+
+  const requireAuth = (actionName = 'proceed') => {
+    if (!currentUser) {
+      openAuthModal('login');
+      showToast(`Please sign in to ${actionName}.`, 'info');
+      return false;
+    }
+    return true;
   };
 
   // Helper to sync browser URL history
@@ -99,11 +118,23 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Initial load & check DB health
+  // Initial load & check DB health & session validation
   useEffect(() => {
     api.checkDbHealth().then(setDbStatus);
 
     const initApp = async () => {
+      // Validate current user session with backend
+      let verifiedUser = null;
+      if (api.getToken()) {
+        try {
+          verifiedUser = await api.getMe();
+          setCurrentUser(verifiedUser);
+        } catch (err) {
+          api.clearAuth();
+          setCurrentUser(null);
+        }
+      }
+
       let loadedForms = [];
       try {
         loadedForms = await api.getForms();
@@ -175,8 +206,30 @@ export default function App() {
       return data;
     } catch (err) {
       console.error('Failed to load forms:', err);
+      setForms([]);
       return [];
     }
+  };
+
+  const handleAuthSuccess = async (user, message) => {
+    setCurrentUser(user);
+    showToast(message, 'success');
+    const userForms = await loadForms();
+    if (userForms.length > 0 && !activeForm) {
+      setActiveFormId(userForms[0].id);
+      setActiveForm(userForms[0]);
+    }
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setCurrentUser(null);
+    setActiveFormId(null);
+    setActiveForm(null);
+    setForms([]);
+    setActiveView('dashboard');
+    syncUrl('dashboard', null, false);
+    showToast('Signed out successfully.', 'info');
   };
 
   const selectForm = async (formId, targetView = 'builder', pushHistory = true) => {
@@ -194,6 +247,9 @@ export default function App() {
         syncUrl(targetView, formId, false);
       }
     } catch (err) {
+      if (err.status === 401) {
+        openAuthModal('login');
+      }
       showToast(err.message, 'error');
     }
   };
@@ -207,6 +263,11 @@ export default function App() {
       return;
     }
 
+    if (['builder', 'analytics'].includes(targetView) && !currentUser) {
+      requireAuth(`open ${targetView}`);
+      return;
+    }
+
     // Determine target form ID
     const resolvedFormId = formId || activeFormId || (forms.length > 0 ? forms[0].id : null);
 
@@ -214,6 +275,7 @@ export default function App() {
       await selectForm(resolvedFormId, targetView, pushHistory);
     } else {
       if (targetView === 'builder') {
+        if (!requireAuth('create or edit a form')) return;
         setIsTemplatesModalOpen(true);
         showToast('Please select or create a form first.', 'info');
       } else {
@@ -223,6 +285,8 @@ export default function App() {
   };
 
   const handleCreateBlank = async () => {
+    if (!requireAuth('create a form')) return;
+
     try {
       const newForm = await api.createForm({
         title: 'Untitled Survey',
@@ -243,6 +307,8 @@ export default function App() {
   };
 
   const handleCreateTemplate = async (templateKey) => {
+    if (!requireAuth('use templates')) return;
+
     try {
       const newForm = await api.createFromTemplate(templateKey);
       await loadForms();
@@ -260,6 +326,7 @@ export default function App() {
   };
 
   const handleDeleteForm = async (formId) => {
+    if (!requireAuth('delete this form')) return;
     if (!window.confirm('Are you sure you want to delete this form and all its responses?')) {
       return;
     }
@@ -279,6 +346,8 @@ export default function App() {
   };
 
   const handleDuplicateForm = async (formId) => {
+    if (!requireAuth('duplicate this form')) return;
+
     try {
       const dup = await api.duplicateForm(formId);
       await loadForms();
@@ -289,6 +358,8 @@ export default function App() {
   };
 
   const handleTogglePublish = async (formId) => {
+    if (!requireAuth('toggle publishing')) return;
+
     try {
       const res = await api.togglePublish(formId);
       await loadForms();
@@ -312,6 +383,8 @@ export default function App() {
 
   // Builder actions
   const handleUpdateFormHeader = async (patch) => {
+    if (!requireAuth('save changes')) return;
+
     setActiveForm((prev) => ({ ...prev, ...patch }));
     try {
       await api.updateForm(activeForm.id, patch);
@@ -322,6 +395,8 @@ export default function App() {
   };
 
   const handleUpdateFormSettings = async (patch) => {
+    if (!requireAuth('update form settings')) return;
+
     setActiveForm((prev) => ({ ...prev, ...patch }));
     try {
       await api.updateForm(activeForm.id, patch);
@@ -333,7 +408,9 @@ export default function App() {
   };
 
   const handleAddField = async (type, defaultProps) => {
+    if (!requireAuth('add questions')) return;
     if (!activeForm) return;
+
     try {
       const newField = await api.addField(activeForm.id, {
         field_type: type,
@@ -352,6 +429,8 @@ export default function App() {
   };
 
   const handleUpdateField = async (fieldId, patch) => {
+    if (!requireAuth('modify questions')) return;
+
     setActiveForm((prev) => ({
       ...prev,
       fields: (prev.fields || []).map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
@@ -364,6 +443,8 @@ export default function App() {
   };
 
   const handleDeleteField = async (fieldId) => {
+    if (!requireAuth('delete questions')) return;
+
     try {
       await api.deleteField(activeForm.id, fieldId);
       setActiveForm((prev) => {
@@ -381,6 +462,8 @@ export default function App() {
   };
 
   const handleDuplicateField = async (field) => {
+    if (!requireAuth('duplicate questions')) return;
+
     try {
       const newField = await api.addField(activeForm.id, {
         field_type: field.field_type,
@@ -404,7 +487,9 @@ export default function App() {
   };
 
   const handleMoveField = async (fromIndex, toIndex) => {
+    if (!requireAuth('reorder questions')) return;
     if (!activeForm || !activeForm.fields) return;
+
     const currentFields = [...activeForm.fields];
     const [moved] = currentFields.splice(fromIndex, 1);
     currentFields.splice(toIndex, 0, moved);
@@ -417,9 +502,12 @@ export default function App() {
     }
   };
 
+  // Public submission handler (Anonymous respondents can always submit!)
   const handleSubmitResponse = async (formId, answers) => {
     const res = await api.submitPublicForm(formId, answers);
-    await loadForms();
+    if (currentUser) {
+      await loadForms();
+    }
     return res;
   };
 
@@ -448,7 +536,14 @@ export default function App() {
         hasForms={forms.length > 0}
         dbStatus={dbStatus}
         onCreateBlank={handleCreateBlank}
-        onOpenTemplates={() => setIsTemplatesModalOpen(true)}
+        onOpenTemplates={() => {
+          if (requireAuth('browse templates')) {
+            setIsTemplatesModalOpen(true);
+          }
+        }}
+        currentUser={currentUser}
+        onOpenAuthModal={() => openAuthModal('login')}
+        onLogout={handleLogout}
       />
 
       <main className="main-content">
@@ -464,6 +559,8 @@ export default function App() {
             onCopyShareLink={handleCopyShareLink}
             isTemplatesModalOpen={isTemplatesModalOpen}
             setIsTemplatesModalOpen={setIsTemplatesModalOpen}
+            currentUser={currentUser}
+            onOpenAuthModal={() => openAuthModal('login')}
           />
         )}
 
@@ -511,6 +608,13 @@ export default function App() {
           />
         )}
       </main>
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onAuthSuccess={handleAuthSuccess}
+        initialMode={authModalMode}
+      />
 
       <Toast toasts={toasts} onRemove={removeToast} />
     </>

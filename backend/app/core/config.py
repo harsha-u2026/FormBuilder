@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     SQLITE_FALLBACK_URL: str = DEFAULT_SQLITE_URL
     ENABLE_SQLITE_FALLBACK: bool = True
 
+    # Authentication & JWT
+    SECRET_KEY: str = "formbuilder-super-secret-key-change-in-production-2026"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+
     # CORS origins
     CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",

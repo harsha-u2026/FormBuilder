@@ -3,10 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from app.api.deps import get_current_user, get_current_user_optional
 from app.core.database import get_db
 from app.models.form import Form
 from app.models.form_field import FormField
 from app.models.form_response import FormResponse
+from app.models.user import User
 from app.schemas.form import (
     FormCreate,
     FormUpdate,
@@ -215,6 +217,7 @@ def _build_form_read(form: Form, db: Session) -> FormRead:
     ordered_fields = sorted(form.fields, key=lambda f: f.order)
     return FormRead(
         id=form.id,
+        owner_id=form.owner_id,
         title=form.title,
         description=form.description,
         is_published=form.is_published,
@@ -228,14 +231,29 @@ def _build_form_read(form: Form, db: Session) -> FormRead:
     )
 
 
+def _check_form_access(form: Form, current_user: User) -> None:
+    """Verify that current_user has permission to access or modify this form."""
+    if form.owner_id is not None and form.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to access this form.",
+        )
+
+
 @router.get("", response_model=List[FormListItem])
 def list_forms(
     search: Optional[str] = Query(None, description="Search term for form title/description"),
     status: Optional[str] = Query(None, description="'published', 'draft', or None for all"),
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db),
 ):
-    """List all forms with field counts and submission counts."""
-    query = db.query(Form)
+    """List forms for the authenticated user. If not logged in, returns empty list."""
+    if not current_user:
+        return []
+
+    query = db.query(Form).filter(
+        (Form.owner_id == current_user.id) | (Form.owner_id.is_(None))
+    )
 
     if search:
         search_pattern = f"%{search}%"
@@ -258,6 +276,7 @@ def list_forms(
         result.append(
             FormListItem(
                 id=form.id,
+                owner_id=form.owner_id,
                 title=form.title,
                 description=form.description,
                 is_published=form.is_published,
@@ -273,9 +292,14 @@ def list_forms(
 
 
 @router.post("", response_model=FormRead, status_code=status.HTTP_201_CREATED)
-def create_form(form_in: FormCreate, db: Session = Depends(get_db)):
-    """Create a new form with optional initial fields."""
+def create_form(
+    form_in: FormCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a new form with optional initial fields assigned to current user."""
     form = Form(
+        owner_id=current_user.id,
         title=form_in.title,
         description=form_in.description,
         is_published=form_in.is_published,
@@ -307,20 +331,31 @@ def create_form(form_in: FormCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{form_id}", response_model=FormRead)
-def get_form(form_id: int, db: Session = Depends(get_db)):
+def get_form(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Get a specific form by ID with its ordered fields and response count."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
     return _build_form_read(form, db)
 
 
 @router.put("/{form_id}", response_model=FormRead)
-def update_form(form_id: int, form_in: FormUpdate, db: Session = Depends(get_db)):
+def update_form(
+    form_id: int,
+    form_in: FormUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Update form attributes."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     update_data = form_in.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -332,11 +367,16 @@ def update_form(form_id: int, form_in: FormUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/{form_id}", status_code=status.HTTP_200_OK)
-def delete_form(form_id: int, db: Session = Depends(get_db)):
+def delete_form(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Delete a form and all associated fields and responses."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     db.delete(form)
     db.commit()
@@ -344,13 +384,19 @@ def delete_form(form_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{form_id}/duplicate", response_model=FormRead, status_code=status.HTTP_201_CREATED)
-def duplicate_form(form_id: int, db: Session = Depends(get_db)):
+def duplicate_form(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Clone an existing form and its fields."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     new_form = Form(
+        owner_id=current_user.id,
         title=f"{form.title} (Copy)",
         description=form.description,
         is_published=False,  # default duplicated forms to draft
@@ -381,11 +427,16 @@ def duplicate_form(form_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{form_id}/toggle-publish")
-def toggle_publish(form_id: int, db: Session = Depends(get_db)):
+def toggle_publish(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Toggle is_published status of a form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     form.is_published = not form.is_published
     db.commit()
@@ -394,7 +445,11 @@ def toggle_publish(form_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/templates/{template_key}", response_model=FormRead, status_code=status.HTTP_201_CREATED)
-def create_from_template(template_key: str, db: Session = Depends(get_db)):
+def create_from_template(
+    template_key: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Create a new form populated from a pre-built template."""
     if template_key not in TEMPLATES:
         raise HTTPException(
@@ -404,6 +459,7 @@ def create_from_template(template_key: str, db: Session = Depends(get_db)):
 
     tpl = TEMPLATES[template_key]
     form = Form(
+        owner_id=current_user.id,
         title=tpl["title"],
         description=tpl["description"],
         is_published=True,

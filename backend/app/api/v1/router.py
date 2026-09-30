@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import forms, fields, public, responses
+from app.api.v1.endpoints import forms, fields, public, responses, auth
 
 api_router = APIRouter()
 
+api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 api_router.include_router(forms.router, prefix="/forms", tags=["Forms"])
 api_router.include_router(fields.router, prefix="/forms", tags=["Form Fields"])
 api_router.include_router(responses.router, prefix="/forms", tags=["Responses & Analytics"])

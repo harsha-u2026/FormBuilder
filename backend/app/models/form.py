@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -8,6 +8,12 @@ class Form(Base):
     __tablename__ = "forms"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    owner_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title = Column(String(255), nullable=False, default="Untitled Form")
     description = Column(Text, nullable=True)
     is_published = Column(Boolean, default=False, nullable=False)
@@ -27,6 +33,7 @@ class Form(Base):
     )
 
     # Relationships
+    owner = relationship("User", back_populates="forms")
     fields = relationship(
         "FormField",
         back_populates="form",

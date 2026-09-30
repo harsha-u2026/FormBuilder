@@ -1,14 +1,17 @@
 import csv
 import io
-from typing import List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user, get_current_user_optional
+from app.core.security import decode_access_token
 from app.core.database import get_db
 from app.models.form import Form
 from app.models.form_field import FormField
 from app.models.form_response import FormResponse
+from app.models.user import User
 from app.schemas.form_response import (
     FormResponseRead,
     FormAnalyticsSummary,
@@ -18,12 +21,26 @@ from app.schemas.form_response import (
 router = APIRouter()
 
 
+def _check_form_access(form: Form, current_user: User) -> None:
+    """Verify that current_user has permission to view responses or analytics for this form."""
+    if form.owner_id is not None and form.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to view responses or analytics for this form.",
+        )
+
+
 @router.get("/{form_id}/responses", response_model=List[FormResponseRead])
-def list_form_responses(form_id: int, db: Session = Depends(get_db)):
+def list_form_responses(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Retrieve all submissions for a given form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     responses = (
         db.query(FormResponse)
@@ -35,11 +52,16 @@ def list_form_responses(form_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{form_id}/analytics", response_model=FormAnalyticsSummary)
-def get_form_analytics(form_id: int, db: Session = Depends(get_db)):
+def get_form_analytics(
+    form_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Calculate aggregated analytics across all submissions for a form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     responses = (
         db.query(FormResponse)
@@ -119,11 +141,33 @@ def get_form_analytics(form_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{form_id}/export")
-def export_form_responses_csv(form_id: int, db: Session = Depends(get_db)):
-    """Export all form responses as a CSV download."""
+def export_form_responses_csv(
+    form_id: int,
+    token: Optional[str] = Query(None, description="Access token for direct browser download"),
+    auth_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db),
+):
+    """Export all form responses as a CSV download (authenticated)."""
+    user = auth_user
+    if not user and token:
+        payload = decode_access_token(token)
+        if payload and "sub" in payload:
+            try:
+                user = db.query(User).filter(User.id == int(payload["sub"])).first()
+            except (ValueError, TypeError):
+                user = None
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to export responses.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, user)
 
     responses = (
         db.query(FormResponse)

@@ -20,8 +20,20 @@ from app.schemas.form_response import (
     FieldSummary,
     FormAnalyticsSummary,
 )
+from app.schemas.user import (
+    UserBase,
+    UserCreate,
+    UserLogin,
+    UserRead,
+    Token,
+)
 
 __all__ = [
+    "UserBase",
+    "UserCreate",
+    "UserLogin",
+    "UserRead",
+    "Token",
     "FormBase",
     "FormCreate",
     "FormUpdate",

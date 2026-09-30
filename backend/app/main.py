@@ -1,18 +1,37 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, inspect
+import logging
 
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import SessionLocal, engine, Base
 import app.models  # noqa: F401
 
+logger = logging.getLogger("formbuilder.startup")
+
+
+def ensure_database_schema():
+    """Idempotently ensure tables and newly added columns exist without data loss."""
+    Base.metadata.create_all(bind=engine)
+    try:
+        with engine.connect() as conn:
+            inspector = inspect(engine)
+            if "forms" in inspector.get_table_names():
+                cols = [c["name"] for c in inspector.get_columns("forms")]
+                if "owner_id" not in cols:
+                    logger.info("Migrating schema: adding owner_id column to forms table.")
+                    conn.execute(text("ALTER TABLE forms ADD COLUMN owner_id INTEGER"))
+                    conn.commit()
+    except Exception as exc:
+        logger.warning(f"Schema migration warning: {exc}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Automatically create tables if they do not exist
-    Base.metadata.create_all(bind=engine)
+    # Automatically create and migrate tables safely if they do not exist
+    ensure_database_schema()
     yield
 
 

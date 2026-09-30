@@ -29,6 +29,7 @@ class FormUpdate(BaseModel):
 
 class FormListItem(BaseModel):
     id: int
+    owner_id: Optional[int] = None
     title: str
     description: Optional[str] = None
     is_published: bool
@@ -44,6 +45,7 @@ class FormListItem(BaseModel):
 
 class FormRead(FormBase):
     id: int
+    owner_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
     fields: List[FormFieldRead] = []

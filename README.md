@@ -94,36 +94,22 @@ FormBuilder/
 
 ---
 
+## 🟢 Authentication & User Management (Implemented)
+
+Secure multi-user support with JWT authentication, bcrypt password hashing, and user-specific ownership:
+
+* **Register:** Users can create their own FormBuilder account with instant validation.
+* **Login:** Users can securely authenticate and obtain a signed JWT token.
+* **User Accounts:** Each user has their own profile, avatar, and authenticated session state.
+* **User-Specific Forms:** Creators only see and manage forms belonging to their account. Legacy unassigned forms are safely preserved.
+* **User Permissions:** Protected endpoints ensure only form owners can edit forms, modify fields, view private respondent answers, and export CSVs, while public respondents can submit answers without login.
+
+---
+
 # FormBuilder Future Roadmap
 
 > [!NOTE]
-> All items listed below represent planned **FUTURE** features and enhancements. None of the features in this roadmap section are currently implemented.
-
-## 🔴 Authentication & User Management
-
-These features are required when FormBuilder is used by multiple independent users.
-
-### Register
-
-Users should be able to create their own FormBuilder account.
-
-### Login
-
-Users should be able to securely log in to their account.
-
-### User Accounts
-
-Each user should have their own account/profile and authenticated session.
-
-### User-Specific Forms
-
-Users should only see and manage the forms belonging to their own account.
-
-### User Permissions
-
-The system should support appropriate permissions for accessing and managing forms and responses.
-
----
+> All items listed below represent planned **FUTURE** features and enhancements.
 
 ## 🟡 Useful Improvements
 

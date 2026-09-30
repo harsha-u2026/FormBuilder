@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from app.api.deps import get_current_user
 from app.core.database import get_db
 from app.models.form import Form
 from app.models.form_field import FormField
+from app.models.user import User
 from app.schemas.form_field import (
     FormFieldCreate,
     FormFieldUpdate,
@@ -15,12 +17,27 @@ from app.schemas.form_field import (
 router = APIRouter()
 
 
+def _check_form_access(form: Form, current_user: User) -> None:
+    """Verify that current_user has permission to modify fields on this form."""
+    if form.owner_id is not None and form.owner_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to modify fields on this form.",
+        )
+
+
 @router.post("/{form_id}/fields", response_model=FormFieldRead, status_code=status.HTTP_201_CREATED)
-def add_field(form_id: int, field_in: FormFieldCreate, db: Session = Depends(get_db)):
+def add_field(
+    form_id: int,
+    field_in: FormFieldCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Add a new field to a form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     # Determine order if not specified
     if field_in.order == 0:
@@ -55,6 +72,7 @@ def update_field(
     form_id: int,
     field_id: int,
     field_in: FormFieldUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Update field properties."""
@@ -65,6 +83,7 @@ def update_field(
     )
     if not field:
         raise HTTPException(status_code=404, detail="Field not found on this form")
+    _check_form_access(field.form, current_user)
 
     update_data = field_in.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -76,7 +95,12 @@ def update_field(
 
 
 @router.delete("/{form_id}/fields/{field_id}", status_code=status.HTTP_200_OK)
-def delete_field(form_id: int, field_id: int, db: Session = Depends(get_db)):
+def delete_field(
+    form_id: int,
+    field_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Delete a field from a form."""
     field = (
         db.query(FormField)
@@ -85,6 +109,7 @@ def delete_field(form_id: int, field_id: int, db: Session = Depends(get_db)):
     )
     if not field:
         raise HTTPException(status_code=404, detail="Field not found on this form")
+    _check_form_access(field.form, current_user)
 
     db.delete(field)
     db.commit()
@@ -95,12 +120,14 @@ def delete_field(form_id: int, field_id: int, db: Session = Depends(get_db)):
 def update_fields_order(
     form_id: int,
     order_in: FieldOrderUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Batch update order indices for fields in a form."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
+    _check_form_access(form, current_user)
 
     for item in order_in.fields:
         db.query(FormField).filter(
