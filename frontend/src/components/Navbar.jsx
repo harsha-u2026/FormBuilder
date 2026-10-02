@@ -28,6 +28,7 @@ export default function Navbar({
   onOpenTemplates,
   currentUser,
   onOpenAuthModal,
+  onOpenAccountModal,
   onLogout,
   theme = 'light',
   onToggleTheme,
@@ -221,6 +222,18 @@ export default function Navbar({
                   </div>
 
                   <div className="user-dropdown-divider" />
+
+                  <button
+                    className="user-dropdown-item"
+                    onClick={() => {
+                      setIsUserMenuOpen(false);
+                      if (onOpenAccountModal) onOpenAccountModal();
+                    }}
+                    role="menuitem"
+                  >
+                    <UserIcon size={15} />
+                    <span>Account Settings</span>
+                  </button>
 
                   <button
                     className="user-dropdown-item logout-item"

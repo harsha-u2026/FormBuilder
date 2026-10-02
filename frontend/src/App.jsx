@@ -8,13 +8,15 @@ import RespondentView from './components/RespondentView';
 import AnalyticsView from './components/AnalyticsView';
 import Toast from './components/Toast';
 import AuthModal from './components/AuthModal';
+import AccountModal from './components/AccountModal';
 import { api } from './api/client';
-import { Sun, Moon, Plus, Edit3, Sliders } from 'lucide-react';
+import { Sun, Moon, Plus, Edit3, Sliders, Loader2, AlertCircle } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => api.getUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -37,6 +39,8 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
   const [isStandaloneRespondent, setIsStandaloneRespondent] = useState(false);
+  const [isPublicLoading, setIsPublicLoading] = useState(false);
+  const [publicError, setPublicError] = useState(null);
 
   useEffect(() => {
     try {
@@ -46,6 +50,17 @@ export default function App() {
       // ignore
     }
   }, [theme]);
+
+  // Handle automatic session expiration
+  useEffect(() => {
+    const handleAuthExpired = () => {
+      setCurrentUser(null);
+      showToast('Your session has expired. Please sign in again.', 'warning');
+      openAuthModal('login');
+    };
+    window.addEventListener('formbuilder:auth-expired', handleAuthExpired);
+    return () => window.removeEventListener('formbuilder:auth-expired', handleAuthExpired);
+  }, []);
 
   const toggleTheme = () => {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
@@ -77,19 +92,38 @@ export default function App() {
     return true;
   };
 
-  // Helper to sync browser URL history
+  // Robust extraction of public survey ID from either:
+  // 1) Query parameter: ?public=123 or ?survey=123
+  // 2) Clean path segment: /public/123, /p/123, /survey/123, /forms/123
+  const getPublicSurveyId = () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromQuery = params.get('survey') || params.get('public');
+      if (fromQuery) return fromQuery;
+
+      const pathname = window.location.pathname || '';
+      const match = pathname.match(/^\/(?:public|survey|p|forms)\/([0-9a-zA-Z_-]+)/i);
+      if (match) return match[1];
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
+  // Helper to sync browser URL history cleanly
   const syncUrl = (view, formId, replace = false) => {
-    let targetUrl = window.location.pathname;
+    let targetUrl = '/';
     if (view && view !== 'dashboard' && formId) {
-      targetUrl = `${window.location.pathname}?view=${view}&formId=${formId}`;
+      targetUrl = `/?view=${view}&formId=${formId}`;
     } else if (view && view !== 'dashboard') {
-      targetUrl = `${window.location.pathname}?view=${view}`;
+      targetUrl = `/?view=${view}`;
     }
 
     const currentSearch = window.location.search;
     const targetSearch = targetUrl.includes('?') ? targetUrl.substring(targetUrl.indexOf('?')) : '';
+    const currentPath = window.location.pathname;
 
-    if (currentSearch !== targetSearch) {
+    if (currentSearch !== targetSearch || (currentPath !== '/' && currentPath !== '')) {
       if (replace) {
         window.history.replaceState({ view, formId }, '', targetUrl);
       } else {
@@ -101,21 +135,27 @@ export default function App() {
   // Listen to browser Back / Forward buttons (popstate)
   useEffect(() => {
     const handlePopState = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const surveyId = params.get('survey') || params.get('public');
+      const surveyId = getPublicSurveyId();
       if (surveyId) {
         setIsStandaloneRespondent(true);
+        setIsPublicLoading(true);
+        setPublicError(null);
         try {
           const data = await api.getPublicForm(surveyId);
           setActiveForm(data);
           setActiveView('respondent');
         } catch (err) {
+          setPublicError(err.message || 'Survey unavailable or unpublished.');
           showToast(err.message, 'error');
+        } finally {
+          setIsPublicLoading(false);
         }
         return;
       }
 
       setIsStandaloneRespondent(false);
+      setPublicError(null);
+      const params = new URLSearchParams(window.location.search);
       const viewParam = params.get('view') || 'dashboard';
       const formIdParam = params.get('formId') || params.get('form');
 
@@ -169,17 +209,21 @@ export default function App() {
         console.error('Failed to load forms:', err);
       }
 
-      // Check URL parameters for direct deep-link or public survey
-      const params = new URLSearchParams(window.location.search);
-      const surveyId = params.get('survey') || params.get('public');
+      // Check URL parameters or path for direct deep-link or public survey
+      const surveyId = getPublicSurveyId();
       if (surveyId) {
         setIsStandaloneRespondent(true);
+        setIsPublicLoading(true);
+        setPublicError(null);
         try {
           const data = await api.getPublicForm(surveyId);
           setActiveForm(data);
           setActiveView('respondent');
         } catch (err) {
+          setPublicError(err.message || 'Survey unavailable or unpublished.');
           showToast(err.message, 'error');
+        } finally {
+          setIsPublicLoading(false);
         }
         return;
       }
@@ -201,6 +245,10 @@ export default function App() {
           setActiveView(viewParam);
         } catch (err) {
           console.error('Could not load deep-linked form:', err);
+          if (err.status === 401) {
+            openAuthModal('login');
+            showToast('Please sign in to access this form.', 'info');
+          }
           setActiveView('dashboard');
         }
       } else if (['builder', 'respondent', 'analytics'].includes(viewParam) && loadedForms.length > 0) {
@@ -402,9 +450,19 @@ export default function App() {
   };
 
   const handleCopyShareLink = (formId) => {
-    const url = `${window.location.origin}${window.location.pathname}?public=${formId}`;
-    navigator.clipboard.writeText(url);
-    showToast('Public survey link copied to clipboard!', 'success');
+    const baseOrigin = import.meta.env.VITE_PUBLIC_URL || window.location.origin;
+    const url = `${baseOrigin}/?public=${formId}`;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => {
+          showToast('Public survey link copied to clipboard!', 'success');
+        })
+        .catch(() => {
+          showToast(`Public survey link: ${url}`, 'info');
+        });
+    } else {
+      showToast(`Public survey link: ${url}`, 'info');
+    }
   };
 
   // Builder actions
@@ -550,7 +608,39 @@ export default function App() {
   const selectedField = activeForm?.fields?.find((f) => f.id === selectedFieldId);
 
   // Standalone respondent view (direct survey taker)
-  if (isStandaloneRespondent && activeForm) {
+  if (isStandaloneRespondent) {
+    if (isPublicLoading) {
+      return (
+        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+            <Loader2 size={36} className="spin-animation" style={{ margin: '0 auto 1rem auto', color: 'var(--primary)' }} />
+            <p style={{ fontSize: '1rem', fontWeight: 600 }}>Loading survey...</p>
+          </div>
+          <Toast toasts={toasts} onRemove={removeToast} />
+        </main>
+      );
+    }
+
+    if (publicError || !activeForm) {
+      return (
+        <main className="main-content" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
+          <div className="respondent-card" style={{ maxWidth: 500, textAlign: 'center', padding: '3rem 2rem' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem auto' }}>
+              <AlertCircle size={24} />
+            </div>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.75rem' }}>Survey Unavailable</h2>
+            <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.95rem' }}>
+              {publicError || 'This form is either unpublished, closed, or does not exist.'}
+            </p>
+            <button className="btn btn-secondary" onClick={() => window.location.reload()}>
+              Retry
+            </button>
+          </div>
+          <Toast toasts={toasts} onRemove={removeToast} />
+        </main>
+      );
+    }
+
     return (
       <main className="main-content">
         <button
@@ -587,6 +677,7 @@ export default function App() {
         }}
         currentUser={currentUser}
         onOpenAuthModal={() => openAuthModal('login')}
+        onOpenAccountModal={() => setIsAccountModalOpen(true)}
         onLogout={handleLogout}
         theme={theme}
         onToggleTheme={toggleTheme}
@@ -702,6 +793,18 @@ export default function App() {
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={handleAuthSuccess}
         initialMode={authModalMode}
+      />
+
+      <AccountModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        currentUser={currentUser}
+        onUserUpdated={(u) => {
+          setCurrentUser(u);
+          api.setUser(u);
+        }}
+        onLogout={handleLogout}
+        showToast={showToast}
       />
 
       <Toast toasts={toasts} onRemove={removeToast} />

@@ -38,3 +38,12 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserRead
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, max_length=255)
+
+
+class UserPasswordChange(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=100)
+    new_password: str = Field(..., min_length=6, max_length=100)

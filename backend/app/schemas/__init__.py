@@ -26,7 +26,10 @@ from app.schemas.user import (
     UserLogin,
     UserRead,
     Token,
+    UserProfileUpdate,
+    UserPasswordChange,
 )
+from app.schemas.form_upload import FormUploadRead
 
 __all__ = [
     "UserBase",

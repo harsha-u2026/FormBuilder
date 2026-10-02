@@ -10,7 +10,89 @@ import {
   ToggleLeft,
   ToggleRight,
   AlertCircle,
+  UploadCloud,
+  X,
+  FileText,
+  Loader2,
 } from 'lucide-react';
+import { api } from '../api/client';
+
+export function isFieldVisible(field, answers) {
+  const rules = field.conditional_rules;
+  if (!rules || !rules.conditions || !Array.isArray(rules.conditions) || rules.conditions.length === 0) {
+    return true;
+  }
+
+  const validConditions = rules.conditions.filter((c) => c && c.field_id);
+  if (validConditions.length === 0) return true;
+
+  const logicType = (rules.logic_type || 'all').toLowerCase();
+  const action = (rules.action || 'show').toLowerCase();
+
+  const results = validConditions.map((cond) => {
+    const rawVal = answers[String(cond.field_id)];
+    const op = (cond.operator || 'equals').toLowerCase();
+    const expected = cond.value;
+
+    if (op === 'is_empty') {
+      return rawVal === undefined || rawVal === null || rawVal === '' || (Array.isArray(rawVal) && rawVal.length === 0);
+    }
+    if (op === 'is_not_empty') {
+      return rawVal !== undefined && rawVal !== null && rawVal !== '' && (!Array.isArray(rawVal) || rawVal.length > 0);
+    }
+
+    if (rawVal === undefined || rawVal === null) {
+      return op === 'not_equals' || op === 'not_contains';
+    }
+
+    // Array / multiselect answers
+    if (Array.isArray(rawVal)) {
+      const normExp = String(expected || '').trim().toLowerCase();
+      const normList = rawVal.map((v) => String(v).trim().toLowerCase());
+      if (op === 'contains') return normList.includes(normExp);
+      if (op === 'not_contains') return !normList.includes(normExp);
+      if (op === 'equals') return normList.length === 1 && normList[0] === normExp;
+      if (op === 'not_equals') return normList.length !== 1 || normList[0] !== normExp;
+      return false;
+    }
+
+    // Boolean switch answers
+    if (typeof rawVal === 'boolean') {
+      let expBool = null;
+      if (typeof expected === 'boolean') expBool = expected;
+      else if (['true', 'yes', '1'].includes(String(expected).toLowerCase())) expBool = true;
+      else if (['false', 'no', '0'].includes(String(expected).toLowerCase())) expBool = false;
+
+      if (expBool !== null) {
+        if (op === 'equals') return rawVal === expBool;
+        if (op === 'not_equals') return rawVal !== expBool;
+      }
+      return false;
+    }
+
+    // Numeric comparison
+    if (op === 'greater_than' || op === 'less_than') {
+      const numAct = Number(rawVal);
+      const numExp = Number(expected);
+      if (isNaN(numAct) || isNaN(numExp)) return false;
+      return op === 'greater_than' ? numAct > numExp : numAct < numExp;
+    }
+
+    // String / generic comparison
+    const strAct = String(rawVal).trim().toLowerCase();
+    const strExp = String(expected !== undefined && expected !== null ? expected : '').trim().toLowerCase();
+
+    if (op === 'equals') return strAct === strExp;
+    if (op === 'not_equals') return strAct !== strExp;
+    if (op === 'contains') return strAct.includes(strExp);
+    if (op === 'not_contains') return !strAct.includes(strExp);
+
+    return true;
+  });
+
+  const matched = logicType === 'all' ? results.every(Boolean) : results.some(Boolean);
+  return action === 'hide' ? !matched : matched;
+}
 
 export default function RespondentView({
   form,
@@ -21,6 +103,8 @@ export default function RespondentView({
   const [answers, setAnswers] = useState({});
   const [hoverRating, setHoverRating] = useState({});
   const [validationErrors, setValidationErrors] = useState({});
+  const [uploadingFields, setUploadingFields] = useState({});
+  const [uploadErrors, setUploadErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState('');
@@ -49,12 +133,85 @@ export default function RespondentView({
     handleInputChange(fieldId, next);
   };
 
+  const handleFileUpload = async (field, fileList) => {
+    const fieldKey = String(field.id);
+    setUploadErrors((prev) => ({ ...prev, [fieldKey]: '' }));
+
+    if (!fileList || fileList.length === 0) return;
+
+    const rules = field.validation_rules || {};
+    const maxFiles = Number(rules.max_files) || 5;
+    const maxMb = Number(rules.max_file_size_mb) || 10;
+    const maxBytes = maxMb * 1024 * 1024;
+    const allowedTypes = (rules.allowed_types || []).map((t) => t.trim().toLowerCase());
+
+    const currentFiles = Array.isArray(answers[fieldKey]) ? answers[fieldKey] : [];
+    if (currentFiles.length + fileList.length > maxFiles) {
+      setUploadErrors((prev) => ({
+        ...prev,
+        [fieldKey]: `You can upload at most ${maxFiles} ${maxFiles === 1 ? 'file' : 'files'} for this question.`,
+      }));
+      return;
+    }
+
+    // Client-side validations
+    for (let i = 0; i < fileList.length; i++) {
+      const f = fileList[i];
+      if (f.size > maxBytes) {
+        setUploadErrors((prev) => ({
+          ...prev,
+          [fieldKey]: `"${f.name}" is too large. Maximum allowed size is ${maxMb} MB.`,
+        }));
+        return;
+      }
+      if (allowedTypes.length > 0) {
+        const ext = '.' + f.name.split('.').pop().toLowerCase();
+        const matches = allowedTypes.some(
+          (t) => t === ext || (t.endsWith('/*') && f.type.startsWith(t.slice(0, -2)))
+        );
+        if (!matches) {
+          setUploadErrors((prev) => ({
+            ...prev,
+            [fieldKey]: `"${f.name}" has an unsupported file type. Allowed: ${allowedTypes.join(', ')}`,
+          }));
+          return;
+        }
+      }
+    }
+
+    setUploadingFields((prev) => ({ ...prev, [fieldKey]: true }));
+    try {
+      const uploadedData = await api.uploadPublicFile(form.id, field.id, fileList);
+      const updatedList = [...currentFiles, ...uploadedData];
+      handleInputChange(field.id, updatedList);
+    } catch (err) {
+      setUploadErrors((prev) => ({
+        ...prev,
+        [fieldKey]: err.message || 'File upload failed. Please try again.',
+      }));
+    } finally {
+      setUploadingFields((prev) => ({ ...prev, [fieldKey]: false }));
+    }
+  };
+
+  const handleRemoveFile = (fieldId, fileKey) => {
+    const key = String(fieldId);
+    const current = Array.isArray(answers[key]) ? answers[key] : [];
+    const next = current.filter((f) => f.file_key !== fileKey);
+    handleInputChange(fieldId, next);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate required fields
+    // Validate required fields (ONLY for fields that are conditionally visible)
     const errors = {};
     for (const field of fields) {
+      // Check conditional visibility
+      if (!isFieldVisible(field, answers)) {
+        continue; // Conditionally hidden questions do NOT trigger required validation
+      }
+
       if (field.required) {
         const val = answers[String(field.id)];
         if (val === undefined || val === null || val === '' || (Array.isArray(val) && val.length === 0)) {
@@ -83,6 +240,7 @@ export default function RespondentView({
   const handleReset = () => {
     setAnswers({});
     setValidationErrors({});
+    setUploadErrors({});
     setIsSuccess(false);
   };
 
@@ -134,9 +292,15 @@ export default function RespondentView({
         ) : (
           /* Questions Form */
           <form onSubmit={handleSubmit} className="respondent-body">
-            {fields.map((field, idx) => {
+            {fields.map((field) => {
+              // Dynamic conditional visibility
+              const visible = isFieldVisible(field, answers);
+              if (!visible) return null;
+
               const fieldKey = String(field.id);
               const hasError = !!validationErrors[fieldKey];
+              const uploadError = uploadErrors[fieldKey];
+              const isUploading = !!uploadingFields[fieldKey];
 
               return (
                 <div key={field.id} className="respondent-field">
@@ -150,17 +314,27 @@ export default function RespondentView({
                   )}
 
                   {/* Input Rendering based on field type */}
-                  {renderInputField(
+                  {renderInputField({
                     field,
-                    answers[fieldKey],
-                    (val) => handleInputChange(field.id, val),
-                    handleCheckboxToggle,
+                    value: answers[fieldKey],
+                    onChange: (val) => handleInputChange(field.id, val),
+                    onCheckboxToggle: handleCheckboxToggle,
                     hoverRating,
-                    setHoverRating
+                    setHoverRating,
+                    onFileUpload: (files) => handleFileUpload(field, files),
+                    onRemoveFile: (fileKey) => handleRemoveFile(field.id, fileKey),
+                    isUploading,
+                  })}
+
+                  {uploadError && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f87171', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                      <AlertCircle size={14} />
+                      <span>{uploadError}</span>
+                    </div>
                   )}
 
                   {hasError && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f87171', fontSize: '0.8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f87171', fontSize: '0.8rem', marginTop: '0.35rem' }}>
                       <AlertCircle size={14} />
                       <span>{validationErrors[fieldKey]}</span>
                     </div>
@@ -198,9 +372,137 @@ export default function RespondentView({
   );
 }
 
-function renderInputField(field, value, onChange, onCheckboxToggle, hoverRating, setHoverRating) {
+function renderInputField({
+  field,
+  value,
+  onChange,
+  onCheckboxToggle,
+  hoverRating,
+  setHoverRating,
+  onFileUpload,
+  onRemoveFile,
+  isUploading,
+}) {
   const type = field.field_type;
   const fieldKey = String(field.id);
+
+  if (type === 'file') {
+    const rules = field.validation_rules || {};
+    const maxFiles = Number(rules.max_files) || 5;
+    const maxMb = Number(rules.max_file_size_mb) || 10;
+    const allowed = (rules.allowed_types || []).join(', ');
+    const uploadedFiles = Array.isArray(value) ? value : [];
+    const canUploadMore = uploadedFiles.length < maxFiles;
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {/* Upload Zone */}
+        {canUploadMore && (
+          <label
+            style={{
+              border: '2px dashed var(--border-subtle, #cbd5e1)',
+              borderRadius: 'var(--radius-md, 8px)',
+              padding: '1.5rem 1rem',
+              textAlign: 'center',
+              cursor: isUploading ? 'not-allowed' : 'pointer',
+              background: 'var(--bg-surface-elevated, #f8fafc)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '0.4rem',
+              transition: 'border-color 0.2s',
+            }}
+          >
+            <input
+              type="file"
+              multiple={maxFiles > 1}
+              style={{ display: 'none' }}
+              disabled={isUploading}
+              accept={(rules.allowed_types || []).join(',')}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  onFileUpload(Array.from(e.target.files));
+                  e.target.value = '';
+                }
+              }}
+            />
+            {isUploading ? (
+              <>
+                <Loader2 size={26} className="spin-icon" color="var(--primary)" />
+                <span style={{ fontSize: '0.875rem', fontWeight: 600 }}>Uploading attachment...</span>
+              </>
+            ) : (
+              <>
+                <UploadCloud size={26} color="var(--primary)" />
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
+                  Click to choose or drag files here
+                </span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  Max {maxFiles} {maxFiles === 1 ? 'file' : 'files'}, up to {maxMb} MB each {allowed ? `(${allowed})` : ''}
+                </span>
+              </>
+            )}
+          </label>
+        )}
+
+        {/* Uploaded Files List */}
+        {uploadedFiles.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+              Attached Files ({uploadedFiles.length}/{maxFiles}):
+            </span>
+            {uploadedFiles.map((file, idx) => {
+              const sizeKb = file.file_size ? round(file.file_size / 1024, 1) : null;
+              return (
+                <div
+                  key={file.file_key || idx}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '0.6rem 0.85rem',
+                    background: 'var(--bg-surface-elevated, #f8fafc)',
+                    border: '1px solid var(--border-subtle, #e2e8f0)',
+                    borderRadius: 'var(--radius-sm, 6px)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', overflow: 'hidden' }}>
+                    <FileText size={16} color="var(--primary)" style={{ flexShrink: 0 }} />
+                    <span
+                      style={{
+                        fontSize: '0.875rem',
+                        fontWeight: 500,
+                        textOverflow: 'ellipsis',
+                        overflow: 'hidden',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {file.original_filename || file.name || 'Uploaded File'}
+                    </span>
+                    {sizeKb && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', flexShrink: 0 }}>
+                        ({sizeKb} KB)
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-icon btn-sm"
+                    style={{ color: '#ef4444', flexShrink: 0 }}
+                    onClick={() => onRemoveFile(file.file_key)}
+                    title="Remove file"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (type === 'textarea') {
     return (
@@ -408,4 +710,8 @@ function renderInputField(field, value, onChange, onCheckboxToggle, hoverRating,
       onChange={(e) => onChange(e.target.value)}
     />
   );
+}
+
+function round(val, decimals = 1) {
+  return Number(Math.round(val + 'e' + decimals) + 'e-' + decimals);
 }

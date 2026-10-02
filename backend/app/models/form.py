@@ -47,6 +47,12 @@ class Form(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    uploads = relationship(
+        "FormUpload",
+        back_populates="form",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     def __repr__(self) -> str:
         return f"<Form(id={self.id}, title='{self.title}', is_published={self.is_published})>"

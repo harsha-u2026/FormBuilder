@@ -1,5 +1,13 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Production-ready API URL resolution:
+// - Uses explicit VITE_API_URL if defined and non-empty
+// - In development mode without VITE_API_URL, defaults to 'http://localhost:8000'
+// - In production mode, defaults to '' (same-origin relative URL) so it works on any host/domain/port
+const RAW_API_URL = import.meta.env.VITE_API_URL;
+const BASE_URL = (RAW_API_URL !== undefined && RAW_API_URL !== null && RAW_API_URL !== '')
+  ? RAW_API_URL
+  : (import.meta.env.DEV ? 'http://localhost:8000' : '');
 const API_URL = `${BASE_URL}/api/v1`;
+
 
 const TOKEN_KEY = 'formbuilder_auth_token';
 const USER_KEY = 'formbuilder_auth_user';
@@ -65,6 +73,17 @@ function authHeaders(extraHeaders = {}) {
 
 async function handleResponse(response) {
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      !response.url?.includes('/auth/login') &&
+      !response.url?.includes('/auth/register')
+    ) {
+      clearAuth();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('formbuilder:auth-expired'));
+      }
+    }
+
     let errorDetail = `Request failed with status ${response.status}`;
     try {
       const data = await response.json();
@@ -301,9 +320,59 @@ export const api = {
     return handleResponse(res);
   },
 
+  async updateProfile(fullName) {
+    const res = await fetch(`${API_URL}/auth/profile`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ full_name: fullName }),
+    });
+    const user = await handleResponse(res);
+    setUser(user);
+    return user;
+  },
+
+  async changePassword(currentPassword, newPassword) {
+    const res = await fetch(`${API_URL}/auth/change-password`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+    return handleResponse(res);
+  },
+
+  // File Upload (Public respondent)
+  async uploadPublicFile(formId, fieldId, fileList) {
+    const formData = new FormData();
+    formData.append('field_id', fieldId);
+    for (let i = 0; i < fileList.length; i++) {
+      formData.append('files', fileList[i]);
+    }
+    const res = await fetch(`${API_URL}/public/forms/${formId}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    return handleResponse(res);
+  },
+
+  // Export URLs
   getExportCsvUrl(formId) {
     const token = getToken();
     const query = token ? `?token=${encodeURIComponent(token)}` : '';
     return `${API_URL}/forms/${formId}/export${query}`;
+  },
+
+  getExportXlsxUrl(formId) {
+    const token = getToken();
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_URL}/forms/${formId}/export/xlsx${query}`;
+  },
+
+  getFileDownloadUrl(formId, fileKey) {
+    const token = getToken();
+    const query = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${API_URL}/forms/${formId}/uploads/${fileKey}${query}`;
   },
 };

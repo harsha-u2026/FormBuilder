@@ -59,6 +59,7 @@ def add_field(
         required=field_in.required,
         options=field_in.options,
         validation_rules=field_in.validation_rules,
+        conditional_rules=field_in.conditional_rules,
         order=calculated_order,
     )
     db.add(new_field)

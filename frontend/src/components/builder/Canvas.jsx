@@ -16,6 +16,8 @@ import {
   ChevronDown,
   ToggleLeft,
   Calendar,
+  UploadCloud,
+  GitBranch,
 } from 'lucide-react';
 
 export default function Canvas({
@@ -129,6 +131,25 @@ export default function Canvas({
                     <div className="field-meta-info">
                       <GripVertical size={14} color="var(--text-faint)" />
                       <span className="field-type-pill">{field.field_type}</span>
+                      {field.conditional_rules?.conditions?.length > 0 && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.25rem',
+                            background: 'rgba(99, 102, 241, 0.12)',
+                            color: 'var(--primary)',
+                            padding: '0.15rem 0.45rem',
+                            borderRadius: '12px',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                          }}
+                          title="Conditional rules active"
+                        >
+                          <GitBranch size={10} />
+                          <span>Logic ({field.conditional_rules.conditions.length})</span>
+                        </span>
+                      )}
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-faint)' }}>
                         #{index + 1}
                       </span>
@@ -300,6 +321,38 @@ function renderFieldMock(field) {
             }
           }}
         />
+      </div>
+    );
+  }
+
+  if (type === 'file') {
+    const rules = field.validation_rules || {};
+    const maxMb = rules.max_file_size_mb || 10;
+    const maxFiles = rules.max_files || 3;
+    const allowed = (rules.allowed_types && rules.allowed_types.length > 0)
+      ? rules.allowed_types.join(', ')
+      : 'All file types';
+    return (
+      <div
+        style={{
+          border: '1.5px dashed var(--border-subtle, #cbd5e1)',
+          borderRadius: 'var(--radius-md, 8px)',
+          padding: '1.25rem 1rem',
+          textAlign: 'center',
+          background: 'var(--bg-surface-elevated, rgba(99, 102, 241, 0.03))',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: '0.35rem',
+        }}
+      >
+        <UploadCloud size={24} color="var(--primary)" />
+        <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-main)' }}>
+          Click or drag files to upload
+        </span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+          Up to {maxFiles} {maxFiles === 1 ? 'file' : 'files'}, max {maxMb} MB each ({allowed})
+        </span>
       </div>
     );
   }

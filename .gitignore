@@ -60,4 +60,7 @@ formbuilder.db
 Thumbs.db
 desktop.ini
 Desktop.ini
+# Uploaded files
+uploads/
+backend/uploads/
 

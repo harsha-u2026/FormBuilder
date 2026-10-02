@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     SQLITE_FALLBACK_URL: str = DEFAULT_SQLITE_URL
     ENABLE_SQLITE_FALLBACK: bool = True
 
+    # File uploads storage directory
+    UPLOAD_DIR: str = str(BACKEND_DIR / "uploads")
+
     # Authentication & JWT
     SECRET_KEY: str = "formbuilder-super-secret-key-change-in-production-2026"
     ALGORITHM: str = "HS256"
@@ -35,6 +38,10 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
     ]
 
     @field_validator("CORS_ORIGINS", mode="before")

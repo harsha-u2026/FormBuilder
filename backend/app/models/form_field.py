@@ -20,7 +20,8 @@ class FormField(Base):
     help_text = Column(Text, nullable=True)
     required = Column(Boolean, default=False, nullable=False)
     options = Column(JSON, nullable=True)  # List of string options or {label, value}
-    validation_rules = Column(JSON, nullable=True)  # E.g. {"min": 1, "max": 10}
+    validation_rules = Column(JSON, nullable=True)  # E.g. {"min": 1, "max": 10, "allowed_types": [...], "max_file_size_mb": 5, "max_files": 1}
+    conditional_rules = Column(JSON, nullable=True)  # E.g. {"action": "show", "logic_type": "all", "conditions": [...]}
     order = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class FormFieldBase(BaseModel):
     field_type: str = Field(
         default="text",
-        description="Field type: text, textarea, number, radio, checkbox, select, rating, date, email, switch",
+        description="Field type: text, textarea, number, radio, checkbox, select, rating, date, email, switch, file",
     )
     label: str = Field(default="Untitled Question", max_length=255)
     placeholder: Optional[str] = Field(default=None, max_length=255)
@@ -14,6 +14,7 @@ class FormFieldBase(BaseModel):
     required: bool = False
     options: Optional[List[Any]] = None
     validation_rules: Optional[Dict[str, Any]] = None
+    conditional_rules: Optional[Dict[str, Any]] = None
     order: int = 0
 
 
@@ -29,6 +30,7 @@ class FormFieldUpdate(BaseModel):
     required: Optional[bool] = None
     options: Optional[List[Any]] = None
     validation_rules: Optional[Dict[str, Any]] = None
+    conditional_rules: Optional[Dict[str, Any]] = None
     order: Optional[int] = None
 
 

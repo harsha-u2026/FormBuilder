@@ -11,6 +11,7 @@ import {
   Mail,
   ToggleLeft,
   Info,
+  UploadCloud,
 } from 'lucide-react';
 
 export const FIELD_DEFINITIONS = [
@@ -95,8 +96,23 @@ export const FIELD_DEFINITIONS = [
     ],
   },
   {
-    category: 'Special & Rating',
+    category: 'Special & Upload',
     items: [
+      {
+        type: 'file',
+        label: 'File Upload',
+        icon: UploadCloud,
+        defaultProps: {
+          label: 'Upload Attachment / File',
+          help_text: 'Attach required documents or images (max 10 MB)',
+          required: false,
+          validation_rules: {
+            allowed_types: ['.pdf', '.png', '.jpg', '.jpeg', '.docx'],
+            max_file_size_mb: 10,
+            max_files: 3,
+          },
+        },
+      },
       {
         type: 'rating',
         label: 'Star Rating',

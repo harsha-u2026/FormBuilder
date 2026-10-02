@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   FileSpreadsheet,
   Edit3,
+  FileText,
 } from 'lucide-react';
 import { api } from '../api/client';
 
@@ -45,6 +46,10 @@ export default function AnalyticsView({ form, onBack, onOpenBuilder }) {
 
   const handleExportCsv = () => {
     window.open(api.getExportCsvUrl(form.id), '_blank');
+  };
+
+  const handleExportXlsx = () => {
+    window.open(api.getExportXlsxUrl(form.id), '_blank');
   };
 
   if (!form) return null;
@@ -96,6 +101,15 @@ export default function AnalyticsView({ form, onBack, onOpenBuilder }) {
           >
             <Download size={16} />
             <span>Export CSV</span>
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={handleExportXlsx}
+            disabled={responses.length === 0}
+            title="Download responses as Excel XLSX"
+          >
+            <FileSpreadsheet size={16} />
+            <span>Export Excel (.xlsx)</span>
           </button>
         </div>
       </div>
@@ -206,6 +220,34 @@ export default function AnalyticsView({ form, onBack, onOpenBuilder }) {
                       let displayVal = val;
                       if (val === undefined || val === null || val === '') {
                         displayVal = <span style={{ color: 'var(--text-faint)' }}>—</span>;
+                      } else if (f.field_type === 'file') {
+                        if (Array.isArray(val) && val.length > 0) {
+                          displayVal = (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              {val.map((file, fIdx) => (
+                                <a
+                                  key={fIdx}
+                                  href={file.download_url || api.getFileDownloadUrl(form.id, file.file_key)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    color: 'var(--primary)',
+                                    textDecoration: 'none',
+                                    fontSize: '0.825rem',
+                                  }}
+                                >
+                                  <FileText size={13} />
+                                  <span>{file.original_filename || file.name || 'Download'}</span>
+                                </a>
+                              ))}
+                            </div>
+                          );
+                        } else {
+                          displayVal = <span style={{ color: 'var(--text-faint)' }}>—</span>;
+                        }
                       } else if (Array.isArray(val)) {
                         displayVal = val.join(', ');
                       } else if (typeof val === 'boolean') {

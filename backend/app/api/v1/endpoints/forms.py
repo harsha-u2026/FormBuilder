@@ -417,6 +417,7 @@ def duplicate_form(
             required=field.required,
             options=field.options,
             validation_rules=field.validation_rules,
+            conditional_rules=field.conditional_rules,
             order=field.order,
         )
         db.add(duplicated_field)

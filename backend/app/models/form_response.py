@@ -20,6 +20,7 @@ class FormResponse(Base):
 
     # Relationship back to Form
     form = relationship("Form", back_populates="responses")
+    uploads = relationship("FormUpload", back_populates="response")
 
     def __repr__(self) -> str:
         return f"<FormResponse(id={self.id}, form_id={self.form_id}, submitted_at='{self.submitted_at}')>"
