@@ -262,9 +262,44 @@ function renderFieldMock(field) {
 
   if (type === 'date') {
     return (
-      <div className="field-input-mock" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>yyyy-mm-dd</span>
-        <Calendar size={14} />
+      <div
+        className="date-input-container"
+        onClick={(e) => {
+          const input = e.currentTarget.querySelector('input[type="date"]');
+          if (input) {
+            try {
+              if (typeof input.showPicker === 'function') {
+                input.showPicker();
+              }
+            } catch (err) {
+              input.focus();
+            }
+          }
+        }}
+      >
+        <input
+          type="date"
+          className="form-input date-picker-input"
+          defaultValue=""
+          onClick={(e) => {
+            try {
+              if (typeof e.currentTarget.showPicker === 'function') {
+                e.currentTarget.showPicker();
+              }
+            } catch (err) {
+              e.currentTarget.focus();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              try {
+                if (typeof e.currentTarget.showPicker === 'function') {
+                  e.currentTarget.showPicker();
+                }
+              } catch (err) {}
+            }
+          }}
+        />
       </div>
     );
   }

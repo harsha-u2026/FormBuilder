@@ -346,12 +346,32 @@ function renderInputField(field, value, onChange, onCheckboxToggle, hoverRating,
 
   if (type === 'date') {
     return (
-      <input
-        type="date"
-        className="form-input"
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <div className="date-input-container">
+        <input
+          type="date"
+          className="form-input date-picker-input"
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => {
+            try {
+              if (typeof e.currentTarget.showPicker === 'function') {
+                e.currentTarget.showPicker();
+              }
+            } catch (err) {
+              e.currentTarget.focus();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              try {
+                if (typeof e.currentTarget.showPicker === 'function') {
+                  e.currentTarget.showPicker();
+                }
+              } catch (err) {}
+            }
+          }}
+        />
+      </div>
     );
   }
 

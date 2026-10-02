@@ -9,11 +9,24 @@ import AnalyticsView from './components/AnalyticsView';
 import Toast from './components/Toast';
 import AuthModal from './components/AuthModal';
 import { api } from './api/client';
+import { Sun, Moon, Plus, Edit3, Sliders } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => api.getUser());
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
+
+  const [theme, setTheme] = useState(() => {
+    try {
+      const saved = localStorage.getItem('formbuilder_theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+    } catch {
+      // ignore
+    }
+    return 'light';
+  });
+
+  const [mobileBuilderTab, setMobileBuilderTab] = useState('canvas'); // 'toolbox' | 'canvas' | 'inspector'
 
   const [forms, setForms] = useState([]);
   const [activeFormId, setActiveFormId] = useState(null);
@@ -24,6 +37,19 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
   const [isStandaloneRespondent, setIsStandaloneRespondent] = useState(false);
+
+  useEffect(() => {
+    try {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('formbuilder_theme', theme);
+    } catch {
+      // ignore
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
 
   const showToast = (message, type = 'info') => {
     const id = Date.now() + Math.random();
@@ -421,10 +447,20 @@ export default function App() {
         fields: [...(prev.fields || []), newField],
       }));
       setSelectedFieldId(newField.id);
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        setMobileBuilderTab('canvas');
+      }
       await loadForms();
       showToast(`Added ${type} question.`, 'success');
     } catch (err) {
       showToast(err.message, 'error');
+    }
+  };
+
+  const handleSelectField = (fieldId) => {
+    setSelectedFieldId(fieldId);
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+      setMobileBuilderTab('inspector');
     }
   };
 
@@ -517,6 +553,14 @@ export default function App() {
   if (isStandaloneRespondent && activeForm) {
     return (
       <main className="main-content">
+        <button
+          className="standalone-theme-toggle"
+          onClick={toggleTheme}
+          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          aria-label="Toggle theme"
+        >
+          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
         <RespondentView
           form={activeForm}
           onSubmitResponse={handleSubmitResponse}
@@ -544,6 +588,8 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => openAuthModal('login')}
         onLogout={handleLogout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
       />
 
       <main className="main-content">
@@ -565,29 +611,71 @@ export default function App() {
         )}
 
         {activeView === 'builder' && activeForm && (
-          <div className="builder-layout">
-            <Toolbox onAddField={handleAddField} />
-            <Canvas
-              form={activeForm}
-              selectedFieldId={selectedFieldId}
-              onSelectField={setSelectedFieldId}
-              onUpdateFormHeader={handleUpdateFormHeader}
-              onMoveFieldUp={(idx) => handleMoveField(idx, idx - 1)}
-              onMoveFieldDown={(idx) => handleMoveField(idx, idx + 1)}
-              onDeleteField={handleDeleteField}
-              onDuplicateField={handleDuplicateField}
-              onPreview={() => navigateTo('respondent', activeForm.id)}
-              onShare={() => handleCopyShareLink(activeForm.id)}
-              onResponses={() => navigateTo('analytics', activeForm.id)}
-            />
-            <Inspector
-              selectedField={selectedField}
-              form={activeForm}
-              onUpdateField={handleUpdateField}
-              onUpdateFormSettings={handleUpdateFormSettings}
-              onTogglePublish={handleTogglePublish}
-              onCopyShareLink={handleCopyShareLink}
-            />
+          <div className="builder-wrapper">
+            {/* Mobile / Tablet Segmented Builder Tabs */}
+            <div className="builder-mobile-tabs" role="tablist" aria-label="Builder View Panels">
+              <button
+                type="button"
+                className={`builder-mobile-tab ${mobileBuilderTab === 'toolbox' ? 'active' : ''}`}
+                onClick={() => setMobileBuilderTab('toolbox')}
+                role="tab"
+                aria-selected={mobileBuilderTab === 'toolbox'}
+              >
+                <Plus size={15} />
+                <span>+ Questions</span>
+              </button>
+              <button
+                type="button"
+                className={`builder-mobile-tab ${mobileBuilderTab === 'canvas' ? 'active' : ''}`}
+                onClick={() => setMobileBuilderTab('canvas')}
+                role="tab"
+                aria-selected={mobileBuilderTab === 'canvas'}
+              >
+                <Edit3 size={15} />
+                <span>Form ({activeForm.fields?.length || 0})</span>
+              </button>
+              <button
+                type="button"
+                className={`builder-mobile-tab ${mobileBuilderTab === 'inspector' ? 'active' : ''}`}
+                onClick={() => setMobileBuilderTab('inspector')}
+                role="tab"
+                aria-selected={mobileBuilderTab === 'inspector'}
+              >
+                <Sliders size={15} />
+                <span>{selectedField ? 'Question Settings' : 'Settings'}</span>
+              </button>
+            </div>
+
+            <div className={`builder-layout mobile-tab-${mobileBuilderTab}`}>
+              <div className="builder-panel-toolbox">
+                <Toolbox onAddField={handleAddField} />
+              </div>
+              <div className="builder-panel-canvas">
+                <Canvas
+                  form={activeForm}
+                  selectedFieldId={selectedFieldId}
+                  onSelectField={handleSelectField}
+                  onUpdateFormHeader={handleUpdateFormHeader}
+                  onMoveFieldUp={(idx) => handleMoveField(idx, idx - 1)}
+                  onMoveFieldDown={(idx) => handleMoveField(idx, idx + 1)}
+                  onDeleteField={handleDeleteField}
+                  onDuplicateField={handleDuplicateField}
+                  onPreview={() => navigateTo('respondent', activeForm.id)}
+                  onShare={() => handleCopyShareLink(activeForm.id)}
+                  onResponses={() => navigateTo('analytics', activeForm.id)}
+                />
+              </div>
+              <div className="builder-panel-inspector">
+                <Inspector
+                  selectedField={selectedField}
+                  form={activeForm}
+                  onUpdateField={handleUpdateField}
+                  onUpdateFormSettings={handleUpdateFormSettings}
+                  onTogglePublish={handleTogglePublish}
+                  onCopyShareLink={handleCopyShareLink}
+                />
+              </div>
+            </div>
           </div>
         )}
 
