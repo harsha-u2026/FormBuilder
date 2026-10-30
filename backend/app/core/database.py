@@ -19,8 +19,12 @@ try:
             connect_args={"check_same_thread": False},
         )
     else:
-        # Test postgresql connection quickly
-        test_engine = create_engine(settings.DATABASE_URL, connect_args={"connect_timeout": 2})
+        # Test postgresql connection with cloud timeout and connection pooling
+        test_engine = create_engine(
+            settings.DATABASE_URL,
+            connect_args={"connect_timeout": 15},
+            pool_pre_ping=True,
+        )
         with test_engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         engine = test_engine

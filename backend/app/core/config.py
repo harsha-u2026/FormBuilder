@@ -57,6 +57,17 @@ class Settings(BaseSettings):
             return [item.strip() for item in v.split(",") if item.strip()]
         return v
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def normalize_database_url(cls, v: str) -> str:
+        """Ensure postgres:// or postgresql:// URLs use the psycopg2 driver for SQLAlchemy."""
+        if isinstance(v, str):
+            if v.startswith("postgres://"):
+                return v.replace("postgres://", "postgresql+psycopg2://", 1)
+            elif v.startswith("postgresql://") and not v.startswith("postgresql+"):
+                return v.replace("postgresql://", "postgresql+psycopg2://", 1)
+        return v
+
     @field_validator("DATABASE_URL", "SQLITE_FALLBACK_URL", mode="after")
     @classmethod
     def resolve_sqlite_url(cls, v: str) -> str:
