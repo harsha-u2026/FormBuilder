@@ -33,6 +33,11 @@ def get_public_form(form_id: int, db: Session = Depends(get_db)):
             detail="This form is currently closed or unpublished.",
         )
 
+    # Safely increment view count for accurate completion rate analytics
+    form.view_count = (form.view_count or 0) + 1
+    db.commit()
+    db.refresh(form)
+
     ordered_fields = sorted(form.fields, key=lambda f: f.order)
     return FormPublicRead(
         id=form.id,
@@ -40,6 +45,7 @@ def get_public_form(form_id: int, db: Session = Depends(get_db)):
         description=form.description,
         is_published=form.is_published,
         theme_color=form.theme_color,
+        theme_settings=form.theme_settings,
         submit_button_text=form.submit_button_text,
         success_message=form.success_message,
         fields=[FormFieldRead.model_validate(f) for f in ordered_fields],
@@ -269,3 +275,34 @@ def submit_form_response(
         "response_id": new_response.id,
         "submitted_at": new_response.submitted_at,
     }
+
+
+@router.get("/forms/{form_id}/banner/{file_key}")
+def get_form_banner(form_id: int, file_key: str):
+    """Safely retrieve and serve the public banner image for a form."""
+    banner_dir = (Path(settings.UPLOAD_DIR) / f"form_{form_id}" / "banners").resolve()
+    base_upload_dir = Path(settings.UPLOAD_DIR).resolve()
+
+    # Prevent path traversal
+    if not str(banner_dir).startswith(str(base_upload_dir)) or not banner_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+
+    matching_files = list(banner_dir.glob(f"banner_{file_key}.*"))
+    if not matching_files:
+        raise HTTPException(status_code=404, detail="Banner image not found.")
+
+    file_path = matching_files[0]
+    ext = file_path.suffix.lower()
+    media_types = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+    }
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_types.get(ext, "application/octet-stream"),
+    )
+

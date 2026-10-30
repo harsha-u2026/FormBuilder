@@ -875,7 +875,6 @@ body::before {
   gap: 1.25rem;
 }
 
-/* Field Card on Canvas */
 .field-card {
   background: var(--color-surface);
   border: 1.5px solid var(--color-border);
@@ -883,9 +882,14 @@ body::before {
   padding: 1.25rem 1.5rem;
   position: relative;
   transition: all var(--transition-fast);
-  cursor: pointer;
+  cursor: grab;
+  user-select: none;
   flex-shrink: 0;
   box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+.field-card:active {
+  cursor: grabbing;
 }
 
 .field-card:hover {
@@ -897,6 +901,79 @@ body::before {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 3px var(--color-accent-light);
   background: var(--color-surface);
+}
+
+.field-card.is-dragging {
+  opacity: 0.4;
+  transform: scale(0.985);
+  border: 2px dashed var(--color-primary) !important;
+  background: var(--color-surface-hover) !important;
+  box-shadow: none !important;
+}
+
+/* Drag-and-drop insertion line indicator */
+.drag-insertion-indicator {
+  position: relative;
+  height: 4px;
+  background: var(--color-primary);
+  border-radius: 4px;
+  margin: -0.4rem 0;
+  box-shadow: 0 0 10px rgba(99, 102, 241, 0.7);
+  animation: pulse-drop-indicator 1.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.drag-insertion-indicator::before,
+.drag-insertion-indicator::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.9);
+}
+
+.drag-insertion-indicator::before {
+  left: -5px;
+}
+
+.drag-insertion-indicator::after {
+  right: -5px;
+}
+
+@keyframes pulse-drop-indicator {
+  0%, 100% {
+    opacity: 0.85;
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.6);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 16px rgba(99, 102, 241, 1);
+  }
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  color: var(--color-text-secondary);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.drag-handle:hover {
+  color: var(--color-primary);
+  background-color: var(--color-surface-hover);
+}
+
+.drag-handle:active {
+  cursor: grabbing;
 }
 
 .field-card-header {
@@ -2466,6 +2543,9 @@ body::before {
   .canvas-header {
     margin-bottom: 1.5rem;
   }
+  .field-controls {
+    opacity: 1 !important;
+  }
   .form-title-input {
     font-size: 1.4rem;
   }
@@ -2635,4 +2715,308 @@ body::before {
 .spin-animation {
   animation: spin 1s linear infinite;
 }
+
+/* ==========================================================================
+   Feature 2: Auto-Save Status Indicators & Recovery Banner
+   ========================================================================== */
+.save-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  line-height: 1;
+  transition: all var(--transition-fast);
+}
+
+.save-status-pill.saving {
+  background: rgba(2, 132, 199, 0.1);
+  color: var(--color-info, #0284C7);
+  border: 1px solid rgba(2, 132, 199, 0.25);
+}
+
+.save-status-pill.saved {
+  background: rgba(22, 163, 74, 0.1);
+  color: var(--color-success, #16A34A);
+  border: 1px solid rgba(22, 163, 74, 0.25);
+}
+
+.save-status-pill.failed {
+  background: rgba(220, 38, 38, 0.1);
+  color: var(--color-error, #DC2626);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+
+.btn-retry-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: var(--color-error, #DC2626);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 4px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 0.35rem;
+  transition: opacity var(--transition-fast);
+}
+
+.btn-retry-save:hover {
+  opacity: 0.9;
+}
+
+.recovery-draft-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(245, 158, 11, 0.05));
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 1.25rem;
+  color: #92400e;
+  font-size: 0.875rem;
+  box-shadow: var(--shadow-sm);
+  animation: fadeIn 0.25s ease-out;
+}
+
+[data-theme="dark"] .recovery-draft-banner {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #fde68a;
+}
+
+.recovery-draft-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* ==========================================================================
+   Feature 3: Respondent Experience & Progress Bar
+   ========================================================================== */
+.respondent-progress-container {
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 6px;
+  background: var(--color-surface-hover, #E5E7EB);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  background: var(--theme-accent, var(--color-primary));
+}
+
+.submission-confirmation-card {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  max-width: 580px;
+  margin: 2rem auto;
+}
+
+.submission-ref-box {
+  display: inline-block;
+  padding: 0.6rem 1.25rem;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-elevated);
+  border: 1px dashed var(--color-border);
+  margin: 1.25rem 0;
+  font-family: 'JetBrains Mono', monospace, monospace;
+  font-size: 0.875rem;
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Feature 4: Share & QR Code Modal
+   ========================================================================== */
+.share-modal-card {
+  max-width: 540px;
+  width: 95vw;
+}
+
+.share-qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: #FFFFFF;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  margin: 1rem 0;
+}
+
+.share-qr-image {
+  width: 220px;
+  height: 220px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.share-link-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* ==========================================================================
+   Feature 5: Advanced Analytics Charts & Filters
+   ========================================================================== */
+.analytics-date-filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.date-preset-pill {
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.date-preset-pill.active {
+  background: var(--color-primary);
+  color: #FFFFFF;
+  border-color: var(--color-primary);
+}
+
+.histogram-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.histogram-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.histogram-bar-fill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  background: #f59e0b;
+  transition: width 0.4s ease-out;
+}
+
+/* ==========================================================================
+   Feature 6: Theme Customization Helper Classes
+   ========================================================================== */
+.theme-bg-clean,
+.theme-bg-default {
+  background-color: var(--color-bg);
+}
+
+.theme-bg-slate,
+.theme-bg-cool {
+  background-color: #F1F5F9;
+}
+
+[data-theme="dark"] .theme-bg-slate,
+[data-theme="dark"] .theme-bg-cool {
+  background-color: #1E293B;
+}
+
+.theme-bg-warm {
+  background-color: #FFFBEB;
+}
+
+[data-theme="dark"] .theme-bg-warm {
+  background-color: #292524;
+}
+
+.theme-bg-midnight,
+.theme-bg-dark {
+  background-color: #0F172A;
+  color: #F8FAFC;
+}
+
+.theme-bg-gradient {
+  background: linear-gradient(135deg, #EEF2FF 0%, #F5F3FF 50%, #FAF5FF 100%);
+}
+
+[data-theme="dark"] .theme-bg-gradient {
+  background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #2E1065 100%);
+}
+
+.theme-btn-rounded {
+  border-radius: 8px;
+}
+
+.theme-btn-pill {
+  border-radius: 9999px;
+}
+
+.theme-btn-sharp {
+  border-radius: 2px;
+}
+
+/* Dynamic Font Families */
+.font-inter {
+  font-family: 'Inter', sans-serif !important;
+}
+
+.font-outfit {
+  font-family: 'Outfit', sans-serif !important;
+}
+
+.font-roboto {
+  font-family: 'Roboto', sans-serif !important;
+}
+
+.font-playfair {
+  font-family: 'Playfair Display', serif !important;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
 

@@ -30,6 +30,14 @@ def ensure_database_schema():
                     logger.info("Migrating schema: adding owner_id column to forms table.")
                     conn.execute(text("ALTER TABLE forms ADD COLUMN owner_id INTEGER"))
                     conn.commit()
+                if "theme_settings" not in cols:
+                    logger.info("Migrating schema: adding theme_settings column to forms table.")
+                    conn.execute(text("ALTER TABLE forms ADD COLUMN theme_settings JSON"))
+                    conn.commit()
+                if "view_count" not in cols:
+                    logger.info("Migrating schema: adding view_count column to forms table.")
+                    conn.execute(text("ALTER TABLE forms ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0"))
+                    conn.commit()
 
             if "form_fields" in inspector.get_table_names():
                 field_cols = [c["name"] for c in inspector.get_columns("form_fields")]

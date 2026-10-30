@@ -109,27 +109,76 @@ def list_form_responses(
     return responses
 
 
+from datetime import datetime, date, time
+from app.schemas.form_response import (
+    FormResponseRead,
+    FormAnalyticsSummary,
+    FieldSummary,
+    TrendPoint,
+)
+
+
 @router.get("/{form_id}/analytics", response_model=FormAnalyticsSummary)
 def get_form_analytics(
     form_id: int,
+    date_from: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    date_to: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Calculate aggregated analytics across all submissions for a form."""
+    """Calculate aggregated analytics, response trends, completion metrics, and field summaries."""
     form = db.query(Form).filter(Form.id == form_id).first()
     if not form:
         raise HTTPException(status_code=404, detail="Form not found")
     _check_form_access(form, current_user)
 
-    responses = (
-        db.query(FormResponse)
-        .filter(FormResponse.form_id == form_id)
-        .order_by(FormResponse.submitted_at.desc())
-        .all()
-    )
+    query = db.query(FormResponse).filter(FormResponse.form_id == form_id)
+
+    # Date range filtering with robust parsing
+    date_filter_applied = False
+    if date_from:
+        try:
+            parts = [int(p) for p in date_from.strip().split("-")]
+            if len(parts) == 3:
+                start_dt = datetime(parts[0], parts[1], parts[2], 0, 0, 0)
+                query = query.filter(FormResponse.submitted_at >= start_dt)
+                date_filter_applied = True
+        except (ValueError, TypeError):
+            pass
+
+    if date_to:
+        try:
+            parts = [int(p) for p in date_to.strip().split("-")]
+            if len(parts) == 3:
+                end_dt = datetime(parts[0], parts[1], parts[2], 23, 59, 59)
+                query = query.filter(FormResponse.submitted_at <= end_dt)
+                date_filter_applied = True
+        except (ValueError, TypeError):
+            pass
+
+    responses = query.order_by(FormResponse.submitted_at.desc()).all()
 
     total_responses = len(responses)
     latest_response_at = responses[0].submitted_at if responses else None
+    view_count = form.view_count or 0
+
+    # Calculate completion rate if views are tracked
+    completion_rate: Optional[float] = None
+    if view_count > 0:
+        raw_rate = (total_responses / view_count) * 100
+        completion_rate = round(min(100.0, raw_rate), 1)
+
+    # Compute daily submission trends (grouped by date YYYY-MM-DD)
+    date_counts: Dict[str, int] = {}
+    for r in responses:
+        if r.submitted_at:
+            d_str = r.submitted_at.strftime("%Y-%m-%d")
+            date_counts[d_str] = date_counts.get(d_str, 0) + 1
+
+    daily_trends = [
+        TrendPoint(date=d, count=c)
+        for d, c in sorted(date_counts.items(), key=lambda x: x[0])
+    ]
 
     fields_summary: List[FieldSummary] = []
 
@@ -142,8 +191,12 @@ def get_form_analytics(
         ]
 
         total_answers = len(answers_for_field)
+        answer_rate = round((total_answers / total_responses * 100), 1) if total_responses > 0 else 0.0
+
         option_counts: Dict[str, int] = {}
+        option_percentages: Dict[str, float] = {}
         avg_rating = None
+        rating_breakdown: Dict[str, int] = {}
         recent_answers: List[Any] = []
 
         if field.field_type in ["radio", "select", "checkbox"]:
@@ -161,22 +214,38 @@ def get_form_analytics(
                     s_ans = str(ans)
                     option_counts[s_ans] = option_counts.get(s_ans, 0) + 1
 
+            # Compute percentages for choices
+            total_choice_votes = sum(option_counts.values())
+            if total_choice_votes > 0:
+                for k, v in option_counts.items():
+                    option_percentages[k] = round((v / total_choice_votes) * 100, 1)
+
         elif field.field_type == "rating":
+            rating_breakdown = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
             numeric_scores = []
             for ans in answers_for_field:
                 try:
+                    score = int(float(ans))
                     numeric_scores.append(float(ans))
+                    if 1 <= score <= 5:
+                        rating_breakdown[str(score)] += 1
                 except (ValueError, TypeError):
                     pass
             if numeric_scores:
                 avg_rating = round(sum(numeric_scores) / len(numeric_scores), 2)
 
         elif field.field_type in ["text", "textarea", "email", "date", "number"]:
-            recent_answers = [str(a) for a in answers_for_field[:10] if a]
+            recent_answers = [str(a) for a in answers_for_field[:15] if a]
 
         elif field.field_type == "switch":
-            option_counts["Yes / True"] = sum(1 for a in answers_for_field if a is True or a == "true" or a == 1)
-            option_counts["No / False"] = sum(1 for a in answers_for_field if a is False or a == "false" or a == 0)
+            yes_count = sum(1 for a in answers_for_field if a is True or a == "true" or a == 1)
+            no_count = sum(1 for a in answers_for_field if a is False or a == "false" or a == 0)
+            option_counts["Yes / Agreed"] = yes_count
+            option_counts["No / Disagreed"] = no_count
+            tot_switch = yes_count + no_count
+            if tot_switch > 0:
+                option_percentages["Yes / Agreed"] = round((yes_count / tot_switch) * 100, 1)
+                option_percentages["No / Disagreed"] = round((no_count / tot_switch) * 100, 1)
 
         elif field.field_type == "file":
             file_names = []
@@ -189,7 +258,7 @@ def get_form_analytics(
                 elif isinstance(ans, dict):
                     fname = ans.get("original_filename") or ans.get("name") or "Uploaded file"
                     file_names.append(fname)
-            recent_answers = file_names[:10]
+            recent_answers = file_names[:15]
 
         fields_summary.append(
             FieldSummary(
@@ -197,8 +266,11 @@ def get_form_analytics(
                 label=field.label,
                 field_type=field.field_type,
                 total_answers=total_answers,
+                answer_rate=answer_rate,
                 option_counts=option_counts if option_counts else None,
+                option_percentages=option_percentages if option_percentages else None,
                 average_rating=avg_rating,
+                rating_breakdown=rating_breakdown if rating_breakdown else None,
                 recent_answers=recent_answers if recent_answers else None,
             )
         )
@@ -206,8 +278,12 @@ def get_form_analytics(
     return FormAnalyticsSummary(
         form_id=form_id,
         total_responses=total_responses,
+        view_count=view_count,
+        completion_rate=completion_rate,
         latest_response_at=latest_response_at,
+        daily_trends=daily_trends,
         fields_summary=fields_summary,
+        date_filter_applied=date_filter_applied,
     )
 
 

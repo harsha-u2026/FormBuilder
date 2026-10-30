@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
 import Toolbox from './components/builder/Toolbox';
@@ -9,8 +9,10 @@ import AnalyticsView from './components/AnalyticsView';
 import Toast from './components/Toast';
 import AuthModal from './components/AuthModal';
 import AccountModal from './components/AccountModal';
+import ShareModal from './components/ShareModal';
+import TemplateGalleryModal from './components/TemplateGalleryModal';
 import { api } from './api/client';
-import { Sun, Moon, Plus, Edit3, Sliders, Loader2, AlertCircle } from 'lucide-react';
+import { Sun, Moon, Plus, Edit3, Sliders, Loader2, AlertCircle, AlertTriangle } from 'lucide-react';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(() => api.getUser());
@@ -38,9 +40,22 @@ export default function App() {
   const [dbStatus, setDbStatus] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [shareModalForm, setShareModalForm] = useState(null);
   const [isStandaloneRespondent, setIsStandaloneRespondent] = useState(false);
   const [isPublicLoading, setIsPublicLoading] = useState(false);
   const [publicError, setPublicError] = useState(null);
+
+  // Auto-Save Draft states & refs
+  const [draftSaveStatus, setDraftSaveStatus] = useState('saved'); // 'saved' | 'saving' | 'failed'
+  const [lastSavedTime, setLastSavedTime] = useState(null);
+  const [saveError, setSaveError] = useState(null);
+  const [recoveryDraft, setRecoveryDraft] = useState(null);
+
+  const saveSeqRef = useRef(0);
+  const pendingFormPatchRef = useRef({});
+  const pendingFieldPatchesRef = useRef({});
+  const autoSaveTimerRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -228,8 +243,30 @@ export default function App() {
         return;
       }
 
+      const params = new URLSearchParams(window.location.search);
       const viewParam = params.get('view');
       const formIdParam = params.get('formId') || params.get('form');
+
+      // Helper to check for unsaved recovery drafts from earlier browser sessions
+      const checkRecovery = (fId, formData) => {
+        try {
+          const raw = localStorage.getItem(`formbuilder_recovery_${fId}`);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            const serverTime = formData.updated_at ? new Date(formData.updated_at).getTime() : 0;
+            if (parsed.timestamp && parsed.timestamp > (serverTime + 2000)) {
+              setRecoveryDraft({ formId: fId, ...parsed });
+            } else {
+              localStorage.removeItem(`formbuilder_recovery_${fId}`);
+              setRecoveryDraft(null);
+            }
+          } else {
+            setRecoveryDraft(null);
+          }
+        } catch {
+          setRecoveryDraft(null);
+        }
+      };
 
       if (formIdParam && ['builder', 'respondent', 'analytics'].includes(viewParam)) {
         const parsedId = Number(formIdParam) || formIdParam;
@@ -237,6 +274,7 @@ export default function App() {
           const data = await api.getForm(parsedId);
           setActiveFormId(parsedId);
           setActiveForm(data);
+          checkRecovery(parsedId, data);
           if (data.fields && data.fields.length > 0) {
             setSelectedFieldId(data.fields[0].id);
           } else {
@@ -257,6 +295,7 @@ export default function App() {
           const data = await api.getForm(firstId);
           setActiveFormId(firstId);
           setActiveForm(data);
+          checkRecovery(firstId, data);
           if (data.fields && data.fields.length > 0) {
             setSelectedFieldId(data.fields[0].id);
           }
@@ -311,6 +350,30 @@ export default function App() {
       const data = await api.getForm(formId);
       setActiveFormId(formId);
       setActiveForm(data);
+      setDraftSaveStatus('saved');
+      setLastSavedTime(data.updated_at ? new Date(data.updated_at).getTime() : Date.now());
+      pendingFormPatchRef.current = {};
+      pendingFieldPatchesRef.current = {};
+
+      // Check for local browser recovery draft
+      try {
+        const rawRecovery = localStorage.getItem(`formbuilder_recovery_${formId}`);
+        if (rawRecovery) {
+          const parsed = JSON.parse(rawRecovery);
+          const serverTime = data.updated_at ? new Date(data.updated_at).getTime() : 0;
+          if (parsed.timestamp && parsed.timestamp > (serverTime + 2000)) {
+            setRecoveryDraft({ formId, ...parsed });
+          } else {
+            localStorage.removeItem(`formbuilder_recovery_${formId}`);
+            setRecoveryDraft(null);
+          }
+        } else {
+          setRecoveryDraft(null);
+        }
+      } catch {
+        setRecoveryDraft(null);
+      }
+
       if (data.fields && data.fields.length > 0) {
         setSelectedFieldId(data.fields[0].id);
       } else {
@@ -449,46 +512,189 @@ export default function App() {
     }
   };
 
+  // Warn before leaving if unsaved changes exist
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      if (draftSaveStatus === 'saving' || draftSaveStatus === 'failed') {
+        e.preventDefault();
+        e.returnValue = 'You have unsaved changes in your form. Are you sure you want to leave?';
+        return e.returnValue;
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [draftSaveStatus]);
+
+  const handleOpenShareModal = (formOrId) => {
+    let target = activeForm;
+    if (typeof formOrId === 'object' && formOrId !== null) {
+      target = formOrId;
+    } else if (formOrId) {
+      target = forms.find((f) => f.id === formOrId) || (activeForm?.id === formOrId ? activeForm : null);
+    }
+    if (!target) {
+      showToast('Please select a form to share.', 'warning');
+      return;
+    }
+    setShareModalForm(target);
+    setIsShareModalOpen(true);
+  };
+
   const handleCopyShareLink = (formId) => {
-    const baseOrigin = import.meta.env.VITE_PUBLIC_URL || window.location.origin;
-    const url = `${baseOrigin}/?public=${formId}`;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url)
-        .then(() => {
-          showToast('Public survey link copied to clipboard!', 'success');
-        })
-        .catch(() => {
-          showToast(`Public survey link: ${url}`, 'info');
-        });
-    } else {
-      showToast(`Public survey link: ${url}`, 'info');
+    handleOpenShareModal(formId);
+  };
+
+  // Auto-Save Draft Worker: Debounced persistence to backend
+  const flushDraftSaves = async (formId) => {
+    if (!formId) return;
+    saveSeqRef.current += 1;
+    const currentSeq = saveSeqRef.current;
+
+    const formPatch = { ...pendingFormPatchRef.current };
+    const fieldPatches = { ...pendingFieldPatchesRef.current };
+    pendingFormPatchRef.current = {};
+    pendingFieldPatchesRef.current = {};
+
+    const hasFormUpdates = Object.keys(formPatch).length > 0;
+    const fieldIds = Object.keys(fieldPatches);
+
+    if (!hasFormUpdates && fieldIds.length === 0) {
+      setDraftSaveStatus('saved');
+      return;
+    }
+
+    setDraftSaveStatus('saving');
+
+    try {
+      if (hasFormUpdates) {
+        await api.updateForm(formId, formPatch);
+      }
+      for (const fid of fieldIds) {
+        await api.updateField(formId, fid, fieldPatches[fid]);
+      }
+
+      // If no newer save cycle began, confirm saved
+      if (saveSeqRef.current === currentSeq) {
+        setDraftSaveStatus('saved');
+        setLastSavedTime(Date.now());
+        setSaveError(null);
+        try {
+          localStorage.removeItem(`formbuilder_recovery_${formId}`);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err) {
+      console.error('Draft auto-save failed:', err);
+      // Restore failed patches back into refs so user retry can push them
+      pendingFormPatchRef.current = { ...formPatch, ...pendingFormPatchRef.current };
+      for (const fid of fieldIds) {
+        pendingFieldPatchesRef.current[fid] = {
+          ...fieldPatches[fid],
+          ...(pendingFieldPatchesRef.current[fid] || {}),
+        };
+      }
+      if (saveSeqRef.current === currentSeq) {
+        setDraftSaveStatus('failed');
+        setSaveError(err.message || 'Auto-save failed');
+      }
     }
   };
 
-  // Builder actions
-  const handleUpdateFormHeader = async (patch) => {
+  const scheduleAutoSave = (formId, formPatch = null, fieldId = null, fieldPatch = null, currentFormSnapshot = null) => {
+    if (!formId) return;
+
+    if (formPatch) {
+      pendingFormPatchRef.current = { ...pendingFormPatchRef.current, ...formPatch };
+    }
+    if (fieldId && fieldPatch) {
+      pendingFieldPatchesRef.current[fieldId] = {
+        ...(pendingFieldPatchesRef.current[fieldId] || {}),
+        ...fieldPatch,
+      };
+    }
+
+    setDraftSaveStatus('saving');
+
+    // Immediately cache current recovery snapshot into local browser storage
+    if (currentFormSnapshot) {
+      try {
+        localStorage.setItem(
+          `formbuilder_recovery_${formId}`,
+          JSON.stringify({
+            form: currentFormSnapshot,
+            timestamp: Date.now(),
+          })
+        );
+      } catch {
+        // ignore
+      }
+    }
+
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+    }
+
+    autoSaveTimerRef.current = setTimeout(() => {
+      flushDraftSaves(formId);
+    }, 650);
+  };
+
+  const handleRetrySave = async () => {
+    if (!activeForm) return;
+    setDraftSaveStatus('saving');
+    await flushDraftSaves(activeForm.id);
+  };
+
+  const handleRestoreRecoveryDraft = () => {
+    if (!recoveryDraft || !activeForm) return;
+    const restoredForm = { ...activeForm, ...recoveryDraft.form };
+    setActiveForm(restoredForm);
+    // Persist restored draft to authoritative database
+    scheduleAutoSave(
+      activeForm.id,
+      {
+        title: restoredForm.title,
+        description: restoredForm.description,
+        theme_settings: restoredForm.theme_settings,
+      },
+      null,
+      null,
+      restoredForm
+    );
+    setRecoveryDraft(null);
+    showToast('Restored unsaved draft from local storage!', 'success');
+  };
+
+  const handleDiscardRecoveryDraft = () => {
+    if (activeForm) {
+      try {
+        localStorage.removeItem(`formbuilder_recovery_${activeForm.id}`);
+      } catch {
+        // ignore
+      }
+    }
+    setRecoveryDraft(null);
+    showToast('Local recovery draft discarded.', 'info');
+  };
+
+  // Builder actions with automatic debounced saving
+  const handleUpdateFormHeader = (patch) => {
     if (!requireAuth('save changes')) return;
+    if (!activeForm) return;
 
-    setActiveForm((prev) => ({ ...prev, ...patch }));
-    try {
-      await api.updateForm(activeForm.id, patch);
-      await loadForms();
-    } catch (err) {
-      console.error('Failed to update form header:', err);
-    }
+    const updated = { ...activeForm, ...patch };
+    setActiveForm(updated);
+    scheduleAutoSave(activeForm.id, patch, null, null, updated);
   };
 
-  const handleUpdateFormSettings = async (patch) => {
+  const handleUpdateFormSettings = (patch) => {
     if (!requireAuth('update form settings')) return;
+    if (!activeForm) return;
 
-    setActiveForm((prev) => ({ ...prev, ...patch }));
-    try {
-      await api.updateForm(activeForm.id, patch);
-      await loadForms();
-      showToast('Form settings updated.', 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
+    const updated = { ...activeForm, ...patch };
+    setActiveForm(updated);
+    scheduleAutoSave(activeForm.id, patch, null, null, updated);
   };
 
   const handleAddField = async (type, defaultProps) => {
@@ -522,18 +728,16 @@ export default function App() {
     }
   };
 
-  const handleUpdateField = async (fieldId, patch) => {
+  const handleUpdateField = (fieldId, patch) => {
     if (!requireAuth('modify questions')) return;
+    if (!activeForm) return;
 
-    setActiveForm((prev) => ({
-      ...prev,
-      fields: (prev.fields || []).map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
-    }));
-    try {
-      await api.updateField(activeForm.id, fieldId, patch);
-    } catch (err) {
-      console.error('Failed to update field:', err);
-    }
+    const updatedFields = (activeForm.fields || []).map((f) =>
+      f.id === fieldId ? { ...f, ...patch } : f
+    );
+    const updatedForm = { ...activeForm, fields: updatedFields };
+    setActiveForm(updatedForm);
+    scheduleAutoSave(activeForm.id, null, fieldId, patch, updatedForm);
   };
 
   const handleDeleteField = async (fieldId) => {
@@ -580,20 +784,38 @@ export default function App() {
     }
   };
 
+  const handleReorderFields = async (newFields) => {
+    if (!requireAuth('reorder questions')) return;
+    if (!activeForm) return;
+
+    setActiveForm((prev) => ({ ...prev, fields: newFields }));
+    setForms((prevForms) =>
+      prevForms.map((f) =>
+        f.id === activeForm.id ? { ...f, fields: newFields } : f
+      )
+    );
+
+    try {
+      await api.reorderFields(activeForm.id, newFields);
+    } catch (err) {
+      console.error('Failed to reorder fields:', err);
+      showToast('Failed to save question order.', 'error');
+      if (activeFormId) {
+        selectForm(activeFormId, 'builder', false);
+      }
+    }
+  };
+
   const handleMoveField = async (fromIndex, toIndex) => {
     if (!requireAuth('reorder questions')) return;
     if (!activeForm || !activeForm.fields) return;
+    if (toIndex < 0 || toIndex >= activeForm.fields.length) return;
 
     const currentFields = [...activeForm.fields];
     const [moved] = currentFields.splice(fromIndex, 1);
     currentFields.splice(toIndex, 0, moved);
 
-    setActiveForm((prev) => ({ ...prev, fields: currentFields }));
-    try {
-      await api.reorderFields(activeForm.id, currentFields);
-    } catch (err) {
-      console.error('Failed to reorder fields:', err);
-    }
+    await handleReorderFields(currentFields);
   };
 
   // Public submission handler (Anonymous respondents can always submit!)
@@ -694,6 +916,7 @@ export default function App() {
             onDuplicateForm={handleDuplicateForm}
             onTogglePublish={handleTogglePublish}
             onCopyShareLink={handleCopyShareLink}
+            onShareForm={handleOpenShareModal}
             isTemplatesModalOpen={isTemplatesModalOpen}
             setIsTemplatesModalOpen={setIsTemplatesModalOpen}
             currentUser={currentUser}
@@ -742,6 +965,25 @@ export default function App() {
                 <Toolbox onAddField={handleAddField} />
               </div>
               <div className="builder-panel-canvas">
+                {/* Local Recovery Draft Banner */}
+                {recoveryDraft && recoveryDraft.formId === activeForm?.id && (
+                  <div className="recovery-draft-banner" role="alert">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <AlertTriangle size={18} style={{ flexShrink: 0, color: 'inherit' }} />
+                      <span>
+                        We found unsaved edits saved in this browser from {new Date(recoveryDraft.timestamp).toLocaleTimeString()}. Would you like to restore them?
+                      </span>
+                    </div>
+                    <div className="recovery-draft-actions">
+                      <button className="btn btn-sm btn-primary" onClick={handleRestoreRecoveryDraft}>
+                        Restore Draft
+                      </button>
+                      <button className="btn btn-sm btn-ghost" onClick={handleDiscardRecoveryDraft}>
+                        Discard
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <Canvas
                   form={activeForm}
                   selectedFieldId={selectedFieldId}
@@ -751,9 +993,13 @@ export default function App() {
                   onMoveFieldDown={(idx) => handleMoveField(idx, idx + 1)}
                   onDeleteField={handleDeleteField}
                   onDuplicateField={handleDuplicateField}
+                  onReorderFields={handleReorderFields}
                   onPreview={() => navigateTo('respondent', activeForm.id)}
-                  onShare={() => handleCopyShareLink(activeForm.id)}
+                  onShare={() => handleOpenShareModal(activeForm)}
                   onResponses={() => navigateTo('analytics', activeForm.id)}
+                  saveStatus={draftSaveStatus}
+                  lastSavedTime={lastSavedTime}
+                  onRetrySave={handleRetrySave}
                 />
               </div>
               <div className="builder-panel-inspector">
@@ -763,7 +1009,7 @@ export default function App() {
                   onUpdateField={handleUpdateField}
                   onUpdateFormSettings={handleUpdateFormSettings}
                   onTogglePublish={handleTogglePublish}
-                  onCopyShareLink={handleCopyShareLink}
+                  onCopyShareLink={() => handleOpenShareModal(activeForm)}
                 />
               </div>
             </div>
@@ -804,6 +1050,30 @@ export default function App() {
           api.setUser(u);
         }}
         onLogout={handleLogout}
+        showToast={showToast}
+      />
+
+      <TemplateGalleryModal
+        isOpen={isTemplatesModalOpen}
+        onClose={() => setIsTemplatesModalOpen(false)}
+        onCreateTemplate={(templateKey) => {
+          setIsTemplatesModalOpen(false);
+          handleCreateTemplate(templateKey);
+        }}
+        onCreateBlank={() => {
+          setIsTemplatesModalOpen(false);
+          handleCreateBlank();
+        }}
+      />
+
+      <ShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => {
+          setIsShareModalOpen(false);
+          setShareModalForm(null);
+        }}
+        form={shareModalForm || activeForm}
+        onTogglePublish={handleTogglePublish}
         showToast={showToast}
       />
 

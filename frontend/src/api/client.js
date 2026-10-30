@@ -103,7 +103,19 @@ async function handleResponse(response) {
     error.status = response.status;
     throw error;
   }
-  return response.json();
+  const json = await response.json();
+  if (json && typeof json === 'object') {
+    if (Array.isArray(json)) {
+      json.forEach((item) => {
+        if (item && typeof item === 'object' && typeof item.theme_settings === 'string') {
+          try { item.theme_settings = JSON.parse(item.theme_settings); } catch { item.theme_settings = {}; }
+        }
+      });
+    } else if (typeof json.theme_settings === 'string') {
+      try { json.theme_settings = JSON.parse(json.theme_settings); } catch { json.theme_settings = {}; }
+    }
+  }
+  return json;
 }
 
 export const api = {
@@ -243,6 +255,11 @@ export const api = {
     return handleResponse(res);
   },
 
+  async getTemplates() {
+    const res = await fetch(`${API_URL}/forms/templates`);
+    return handleResponse(res);
+  },
+
   async createFromTemplate(templateKey) {
     const res = await fetch(`${API_URL}/forms/templates/${templateKey}`, {
       method: 'POST',
@@ -313,9 +330,24 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getFormAnalytics(formId) {
-    const res = await fetch(`${API_URL}/forms/${formId}/analytics`, {
+  async getFormAnalytics(formId, dateFrom = null, dateTo = null) {
+    const params = new URLSearchParams();
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    const q = params.toString() ? `?${params.toString()}` : '';
+    const res = await fetch(`${API_URL}/forms/${formId}/analytics${q}`, {
       headers: authHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async uploadFormBanner(formId, file) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_URL}/forms/${formId}/banner`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: formData,
     });
     return handleResponse(res);
   },

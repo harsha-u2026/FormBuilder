@@ -509,21 +509,194 @@ export default function Inspector({
             </div>
           )
         ) : (
-          /* Form Settings Tab */
-          <>
+          /* Form Settings & Branding Tab */
+          <div className="inspector-settings-list" style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
             {/* Theme Accent Color */}
             <div className="form-group">
-              <label className="form-label">Theme Accent Color</label>
-              <div className="color-swatches">
+              <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>Theme Accent Color</span>
+                <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  {form.theme_settings?.primary_color || form.theme_color || '#6366f1'}
+                </span>
+              </label>
+              <div className="color-swatches" style={{ marginBottom: '0.5rem' }}>
                 {PALETTE.map((swatch) => (
                   <div
                     key={swatch.color}
-                    className={`color-swatch ${form.theme_color === swatch.color ? 'active' : ''}`}
+                    className={`color-swatch ${(form.theme_settings?.primary_color || form.theme_color) === swatch.color ? 'active' : ''}`}
                     style={{ backgroundColor: swatch.color }}
-                    onClick={() => onUpdateFormSettings({ theme_color: swatch.color })}
+                    onClick={() => {
+                      const current = form.theme_settings || {};
+                      onUpdateFormSettings({
+                        theme_color: swatch.color,
+                        theme_settings: { ...current, primary_color: swatch.color },
+                      });
+                    }}
                     title={swatch.name}
                   />
                 ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <input
+                  type="color"
+                  value={form.theme_settings?.primary_color || form.theme_color || '#6366f1'}
+                  onChange={(e) => {
+                    const current = form.theme_settings || {};
+                    onUpdateFormSettings({
+                      theme_color: e.target.value,
+                      theme_settings: { ...current, primary_color: e.target.value },
+                    });
+                  }}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    padding: 0,
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: 'pointer',
+                  }}
+                  title="Pick custom color"
+                />
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="#6366f1"
+                  value={form.theme_settings?.primary_color || form.theme_color || '#6366f1'}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const current = form.theme_settings || {};
+                    onUpdateFormSettings({
+                      theme_color: val,
+                      theme_settings: { ...current, primary_color: val },
+                    });
+                  }}
+                  style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
+                />
+              </div>
+            </div>
+
+            {/* Typography Choice */}
+            <div className="form-group">
+              <label className="form-label">Typography / Font Family</label>
+              <select
+                className="form-select"
+                value={form.theme_settings?.font_family || 'inter'}
+                onChange={(e) => {
+                  const current = form.theme_settings || {};
+                  onUpdateFormSettings({
+                    theme_settings: { ...current, font_family: e.target.value },
+                  });
+                }}
+              >
+                <option value="inter">Inter (Modern & Clean Sans)</option>
+                <option value="outfit">Outfit (Geometric & Friendly)</option>
+                <option value="roboto">Roboto (Neutral & Crisp)</option>
+                <option value="playfair">Playfair Display (Editorial Serif)</option>
+                <option value="jetbrains">JetBrains Mono (Technical Monospace)</option>
+              </select>
+            </div>
+
+            {/* Button Style */}
+            <div className="form-group">
+              <label className="form-label">Button Styling</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
+                {[
+                  { key: 'rounded', label: 'Rounded (8px)' },
+                  { key: 'pill', label: 'Pill Shape' },
+                  { key: 'sharp', label: 'Sharp (2px)' },
+                ].map((b) => {
+                  const isCurrent = (form.theme_settings?.button_style || 'rounded') === b.key;
+                  return (
+                    <button
+                      key={b.key}
+                      type="button"
+                      className={`btn btn-sm ${isCurrent ? 'btn-primary' : 'btn-secondary'}`}
+                      onClick={() => {
+                        const current = form.theme_settings || {};
+                        onUpdateFormSettings({
+                          theme_settings: { ...current, button_style: b.key },
+                        });
+                      }}
+                      style={{
+                        fontSize: '0.75rem',
+                        padding: '0.4rem 0.2rem',
+                        borderRadius: b.key === 'pill' ? '999px' : b.key === 'sharp' ? '2px' : '6px',
+                      }}
+                    >
+                      {b.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Form Background Tone */}
+            <div className="form-group">
+              <label className="form-label">Background Atmosphere</label>
+              <select
+                className="form-select"
+                value={form.theme_settings?.background_style || 'clean'}
+                onChange={(e) => {
+                  const current = form.theme_settings || {};
+                  onUpdateFormSettings({
+                    theme_settings: { ...current, background_style: e.target.value },
+                  });
+                }}
+              >
+                <option value="clean">Clean Minimalist (Light / Dark)</option>
+                <option value="slate">Cool Slate Tone</option>
+                <option value="warm">Warm Paper / Sand</option>
+                <option value="midnight">Midnight Contrast</option>
+              </select>
+            </div>
+
+            {/* Header Banner Image */}
+            <div className="form-group">
+              <label className="form-label">Header Banner Image</label>
+              {form.theme_settings?.banner_url ? (
+                <div style={{ position: 'relative', marginBottom: '0.5rem', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                  <img
+                    src={form.theme_settings.banner_url}
+                    alt="Current header banner"
+                    style={{ width: '100%', height: 90, objectFit: 'cover', display: 'block' }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm btn-icon"
+                    onClick={() => {
+                      const current = form.theme_settings || {};
+                      onUpdateFormSettings({
+                        theme_settings: { ...current, banner_url: null },
+                      });
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      background: 'rgba(0,0,0,0.6)',
+                      color: '#ffffff',
+                    }}
+                    title="Remove banner image"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ) : null}
+
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="https://images.unsplash.com/... or paste image URL"
+                  value={form.theme_settings?.banner_url || ''}
+                  onChange={(e) => {
+                    const current = form.theme_settings || {};
+                    onUpdateFormSettings({
+                      theme_settings: { ...current, banner_url: e.target.value.trim() || null },
+                    });
+                  }}
+                  style={{ fontSize: '0.8rem' }}
+                />
               </div>
             </div>
 
@@ -575,18 +748,20 @@ export default function Inspector({
               </button>
             </div>
 
-            {/* Share Link button */}
+            {/* Share & QR Code Link */}
             <button
+              type="button"
               className="btn btn-primary"
-              style={{ width: '100%', marginTop: '0.5rem' }}
+              style={{ width: '100%', marginTop: '0.25rem' }}
               onClick={() => onCopyShareLink(form.id)}
             >
               <Share2 size={16} />
-              <span>Copy Public Link</span>
+              <span>Share & Generate QR Code</span>
             </button>
-          </>
+          </div>
         )}
       </div>
     </aside>
   );
 }
+

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, func
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, ForeignKey, JSON, func
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -18,6 +18,8 @@ class Form(Base):
     description = Column(Text, nullable=True)
     is_published = Column(Boolean, default=False, nullable=False)
     theme_color = Column(String(50), default="#6366f1", nullable=False)
+    theme_settings = Column(JSON, nullable=True)  # e.g. {"font_family": "inter", "button_style": "rounded", "bg_style": "clean", "banner_url": ...}
+    view_count = Column(Integer, default=0, nullable=False)
     submit_button_text = Column(String(50), default="Submit", nullable=False)
     success_message = Column(
         Text,

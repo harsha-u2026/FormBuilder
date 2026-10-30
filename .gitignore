@@ -64,3 +64,9 @@ Desktop.ini
 uploads/
 backend/uploads/
 
+
+# Local backups and audit artifacts
+*.bak
+*_audit_backup*/
+"**/*_audit_backup_*/"
+

@@ -30,6 +30,7 @@ export default function Dashboard({
   onDuplicateForm,
   onTogglePublish,
   onCopyShareLink,
+  onShareForm,
   isTemplatesModalOpen,
   setIsTemplatesModalOpen,
   currentUser,
@@ -362,9 +363,14 @@ export default function Dashboard({
                       className="btn btn-ghost btn-sm btn-icon"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onCopyShareLink(form.id);
+                        if (onShareForm) {
+                          onShareForm(form);
+                        } else if (onCopyShareLink) {
+                          onCopyShareLink(form.id);
+                        }
                       }}
-                      title="Copy Public Link"
+                      title="Share Form & QR Code"
+                      aria-label="Share Form & QR Code"
                     >
                       <Share2 size={14} />
                     </button>
@@ -394,47 +400,6 @@ export default function Dashboard({
               </div>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Template Picker Modal */}
-      {isTemplatesModalOpen && (
-        <div className="modal-overlay" onClick={() => setIsTemplatesModalOpen(false)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <Sparkles size={20} color="var(--primary)" />
-                <h2 className="modal-title">Select a Form Template</h2>
-              </div>
-              <button className="btn btn-ghost btn-icon" onClick={() => setIsTemplatesModalOpen(false)}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="modal-body">
-              <div className="template-grid">
-                {templateOptions.map((tpl) => {
-                  const IconComp = tpl.icon;
-                  return (
-                    <div
-                      key={tpl.key}
-                      className="template-card"
-                      onClick={() => {
-                        onCreateTemplate(tpl.key);
-                        setIsTemplatesModalOpen(false);
-                      }}
-                    >
-                      <div className="template-badge" style={{ background: tpl.color }}>
-                        <IconComp size={20} />
-                      </div>
-                      <div className="template-name">{tpl.title}</div>
-                      <div className="template-desc">{tpl.desc}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

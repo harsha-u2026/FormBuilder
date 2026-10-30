@@ -135,5 +135,6 @@ def update_fields_order(
             FormField.id == item.id, FormField.form_id == form_id
         ).update({"order": item.order})
 
+    form.updated_at = func.now()
     db.commit()
     return {"message": "Field order updated successfully"}

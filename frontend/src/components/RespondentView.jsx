@@ -108,10 +108,39 @@ export default function RespondentView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [submissionFeedback, setSubmissionFeedback] = useState('');
+  const [submissionRef, setSubmissionRef] = useState(null);
 
   if (!form) return null;
 
   const fields = form.fields || [];
+
+  // Theme resolution with safe fallbacks
+  const themeSettings = form.theme_settings || {};
+  const primaryColor = themeSettings.primary_color || form.theme_color || '#6366f1';
+  const fontFamilyChoice = themeSettings.font_family || 'inter';
+  const buttonStyleChoice = themeSettings.button_style || 'rounded';
+  const bgStyleChoice = themeSettings.background_style || 'clean';
+
+  const fontMap = {
+    inter: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    roboto: "'Roboto', -apple-system, BlinkMacSystemFont, sans-serif",
+    outfit: "'Outfit', -apple-system, BlinkMacSystemFont, sans-serif",
+    playfair: "'Playfair Display', Georgia, serif",
+    jetbrains: "'JetBrains Mono', monospace",
+  };
+
+  const btnRadius = buttonStyleChoice === 'pill' ? '999px' : buttonStyleChoice === 'sharp' ? '2px' : '8px';
+
+  // Dynamic Progress calculation (EXCLUDES conditionally hidden questions!)
+  const visibleFields = fields.filter((f) => isFieldVisible(f, answers));
+  const totalVisible = visibleFields.length;
+  const answeredCount = visibleFields.filter((f) => {
+    const val = answers[String(f.id)];
+    if (val === undefined || val === null || val === '') return false;
+    if (Array.isArray(val) && val.length === 0) return false;
+    return true;
+  }).length;
+  const progressPercent = totalVisible > 0 ? Math.round((answeredCount / totalVisible) * 100) : 0;
 
   const handleInputChange = (fieldId, value) => {
     setAnswers((prev) => ({ ...prev, [String(fieldId)]: value }));
@@ -203,6 +232,7 @@ export default function RespondentView({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return; // Prevent duplicate clicks
 
     // Validate required fields (ONLY for fields that are conditionally visible)
     const errors = {};
@@ -222,6 +252,12 @@ export default function RespondentView({
 
     if (Object.keys(errors).length > 0) {
       setValidationErrors(errors);
+      // Scroll smoothly to first invalid field
+      const firstErrorId = Object.keys(errors)[0];
+      const el = document.getElementById(`field-container-${firstErrorId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       return;
     }
 
@@ -230,8 +266,13 @@ export default function RespondentView({
       const res = await onSubmitResponse(form.id, answers);
       setIsSuccess(true);
       setSubmissionFeedback(res.message || form.success_message);
+      setSubmissionRef({
+        id: res.response_id || Math.floor(100000 + Math.random() * 900000),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        date: new Date().toLocaleDateString(),
+      });
     } catch (err) {
-      alert(err.message || 'Submission failed');
+      alert(err.message || 'Submission failed. Please check your answers and try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -242,10 +283,19 @@ export default function RespondentView({
     setValidationErrors({});
     setUploadErrors({});
     setIsSuccess(false);
+    setSubmissionRef(null);
   };
 
   return (
-    <div className="respondent-container" style={{ '--form-accent': form.theme_color || '#6366f1' }}>
+    <div
+      className={`respondent-container theme-bg-${bgStyleChoice}`}
+      style={{
+        '--form-accent': primaryColor,
+        '--form-font': fontMap[fontFamilyChoice] || fontMap.inter,
+        '--form-btn-radius': btnRadius,
+        fontFamily: fontMap[fontFamilyChoice] || fontMap.inter,
+      }}
+    >
       {/* Back to Builder button if opened inside app */}
       {onBackToStudio && (
         <div style={{ width: '100%', maxWidth: 680, marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -262,28 +312,128 @@ export default function RespondentView({
       )}
 
       <div className="respondent-card">
+        {/* Header Banner if customized */}
+        {themeSettings.banner_url && (
+          <div className="respondent-banner-wrapper" style={{ maxHeight: 220, overflow: 'hidden', borderTopLeftRadius: 'calc(var(--radius-xl) - 2px)', borderTopRightRadius: 'calc(var(--radius-xl) - 2px)' }}>
+            <img
+              src={themeSettings.banner_url}
+              alt="Form header banner"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+        )}
+
         {/* Form Header */}
         <div className="respondent-header">
           <h1 className="respondent-title">{form.title}</h1>
           {form.description && <p className="respondent-desc">{form.description}</p>}
         </div>
 
-        {isSuccess ? (
-          /* Success Screen */
-          <div className="success-screen">
-            <div className="success-icon-badge">
-              <CheckCircle2 size={40} />
+        {/* Dynamic Progress Bar (Excluded hidden logic questions) */}
+        {!isSuccess && totalVisible > 1 && (
+          <div
+            className="respondent-progress-box"
+            style={{ padding: '0 2rem 1.25rem 2rem', borderBottom: '1px solid var(--color-border)' }}
+            aria-label="Survey completion progress"
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
+              <span>Question {answeredCount} of {totalVisible} answered</span>
+              <span>{progressPercent}% completed</span>
             </div>
-            <h2 style={{ fontSize: '1.75rem', fontWeight: 800 }}>Response Submitted!</h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: '1rem', maxWidth: 450 }}>
+            <div
+              className="progress-bar-track"
+              role="progressbar"
+              aria-valuenow={progressPercent}
+              aria-valuemin="0"
+              aria-valuemax="100"
+              style={{
+                width: '100%',
+                height: 6,
+                background: 'var(--color-surface-hover)',
+                borderRadius: '999px',
+                overflow: 'hidden',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              <div
+                className="progress-bar-fill"
+                style={{
+                  width: `${progressPercent}%`,
+                  height: '100%',
+                  background: primaryColor,
+                  borderRadius: '999px',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {isSuccess ? (
+          /* Success / Confirmation Screen */
+          <div className="success-screen" style={{ textAlign: 'center', padding: '3.5rem 2rem' }}>
+            <div
+              className="success-icon-badge"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                background: primaryColor,
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 1.25rem auto',
+                boxShadow: `0 8px 20px -4px ${primaryColor}66`,
+              }}
+            >
+              <CheckCircle2 size={36} />
+            </div>
+            <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '0.5rem' }}>Response Submitted!</h2>
+            <p style={{ color: 'var(--text-muted)', fontSize: '1rem', maxWidth: 450, margin: '0 auto 1.5rem auto', lineHeight: 1.5 }}>
               {submissionFeedback || 'Thank you for taking the time to share your response.'}
             </p>
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
-              <button className="btn btn-secondary" onClick={handleReset}>
+
+            {submissionRef && (
+              <div
+                className="submission-ref-box"
+                style={{
+                  background: 'var(--color-surface-hover)',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.75rem 1.25rem',
+                  fontSize: '0.85rem',
+                  color: 'var(--text-muted)',
+                  display: 'inline-flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                  marginBottom: '1.75rem',
+                  textAlign: 'center',
+                }}
+              >
+                <div>
+                  Submission Reference: <strong style={{ color: 'var(--text-main)' }}>#SUB-{submissionRef.id}</strong>
+                </div>
+                <div>Recorded: {submissionRef.date} at {submissionRef.time}</div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleReset}
+                style={{ borderRadius: btnRadius }}
+              >
                 Submit Another Response
               </button>
               {onBackToStudio && (
-                <button className="btn btn-primary" onClick={onBackToStudio}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={onBackToStudio}
+                  style={{ background: primaryColor, borderColor: primaryColor, borderRadius: btnRadius }}
+                >
                   Return to Studio
                 </button>
               )}
@@ -291,7 +441,7 @@ export default function RespondentView({
           </div>
         ) : (
           /* Questions Form */
-          <form onSubmit={handleSubmit} className="respondent-body">
+          <form onSubmit={handleSubmit} className="respondent-body" noValidate>
             {fields.map((field) => {
               // Dynamic conditional visibility
               const visible = isFieldVisible(field, answers);
@@ -303,10 +453,14 @@ export default function RespondentView({
               const isUploading = !!uploadingFields[fieldKey];
 
               return (
-                <div key={field.id} className="respondent-field">
+                <div
+                  key={field.id}
+                  id={`field-container-${field.id}`}
+                  className={`respondent-field ${hasError ? 'has-error' : ''}`}
+                >
                   <label className="field-label-text">
                     {field.label}
-                    {field.required && <span className="required-indicator">*</span>}
+                    {field.required && <span className="required-indicator" aria-hidden="true">*</span>}
                   </label>
 
                   {field.help_text && (
@@ -314,27 +468,37 @@ export default function RespondentView({
                   )}
 
                   {/* Input Rendering based on field type */}
-                  {renderInputField({
-                    field,
-                    value: answers[fieldKey],
-                    onChange: (val) => handleInputChange(field.id, val),
-                    onCheckboxToggle: handleCheckboxToggle,
-                    hoverRating,
-                    setHoverRating,
-                    onFileUpload: (files) => handleFileUpload(field, files),
-                    onRemoveFile: (fileKey) => handleRemoveFile(field.id, fileKey),
-                    isUploading,
-                  })}
+                  <div
+                    aria-invalid={hasError}
+                    aria-describedby={hasError ? `error-${field.id}` : undefined}
+                  >
+                    {renderInputField({
+                      field,
+                      value: answers[fieldKey],
+                      onChange: (val) => handleInputChange(field.id, val),
+                      onCheckboxToggle: handleCheckboxToggle,
+                      hoverRating,
+                      setHoverRating,
+                      onFileUpload: (files) => handleFileUpload(field, files),
+                      onRemoveFile: (fileKey) => handleRemoveFile(field.id, fileKey),
+                      isUploading,
+                    })}
+                  </div>
 
                   {uploadError && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f87171', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#ef4444', fontSize: '0.8rem', marginTop: '0.4rem' }}>
                       <AlertCircle size={14} />
                       <span>{uploadError}</span>
                     </div>
                   )}
 
                   {hasError && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#f87171', fontSize: '0.8rem', marginTop: '0.35rem' }}>
+                    <div
+                      id={`error-${field.id}`}
+                      className="field-error-msg"
+                      role="alert"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#ef4444', fontSize: '0.8rem', marginTop: '0.4rem', fontWeight: 500 }}
+                    >
                       <AlertCircle size={14} />
                       <span>{validationErrors[fieldKey]}</span>
                     </div>
@@ -343,20 +507,29 @@ export default function RespondentView({
               );
             })}
 
-            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ marginTop: '2rem', display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 type="submit"
                 className="btn btn-primary"
                 disabled={isSubmitting}
                 style={{
-                  background: form.theme_color || '#6366f1',
-                  borderColor: form.theme_color || '#6366f1',
-                  padding: '0.75rem 2rem',
+                  background: primaryColor,
+                  borderColor: primaryColor,
+                  borderRadius: btnRadius,
+                  padding: '0.75rem 2.25rem',
                   fontSize: '1rem',
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                  opacity: isSubmitting ? 0.75 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
                 }}
               >
                 {isSubmitting ? (
-                  <span>Submitting...</span>
+                  <>
+                    <Loader2 size={16} className="spin-animation" />
+                    <span>Submitting...</span>
+                  </>
                 ) : (
                   <>
                     <Send size={16} />
